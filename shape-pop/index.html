@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Shape Pop: Chaos Edition</title>
+    <style>
+        :root {
+            --bg-color: #0f0f1a;
+            --ui-color: #e94560;
+            --text-color: #ffffff;
+            --border-color: #303050;
+            --muted-color: #a9a9c8;
+        }
+
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            overflow: hidden; background-color: var(--bg-color);
+            font-family: 'Segoe UI', system-ui, -apple-system, Roboto, sans-serif;
+            user-select: none; -webkit-user-select: none; touch-action: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        #game-container { position: fixed; inset: 0; }
+        canvas { display: block; }
+
+        /* Kept clear of notches and rounded corners on phones */
+        #ui-layer {
+            position: absolute; top: calc(12px + env(safe-area-inset-top, 0px)); left: 0; right: 0;
+            padding: 0 calc(8px + env(safe-area-inset-right, 0px)) 0 calc(8px + env(safe-area-inset-left, 0px));
+            pointer-events: none; display: flex; justify-content: space-around; gap: 8px;
+            color: var(--text-color); font-size: clamp(0.85rem, 3.8vw, 1.5rem);
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.7); z-index: 5;
+        }
+
+        .stat-box {
+            background: rgba(0, 0, 0, 0.5); padding: 0.4em 0.85em;
+            border-radius: 15px; backdrop-filter: blur(8px);
+            border: 1px solid rgba(255,255,255,0.1); white-space: nowrap;
+        }
+
+        #overlay {
+            position: absolute; inset: 0; box-sizing: border-box;
+            padding: env(safe-area-inset-top, 0px) 16px env(safe-area-inset-bottom, 0px);
+            background: rgba(15, 15, 26, 0.9); display: flex;
+            flex-direction: column; align-items: center; justify-content: center;
+            color: white; z-index: 10; transition: opacity 0.5s; text-align: center;
+        }
+
+        #overlay h1 { font-size: clamp(2.5rem, 13vw, 4rem); line-height: 1.1; margin: 0; color: var(--ui-color); }
+        #overlay p { font-size: clamp(1.1rem, 5vw, 1.5rem); margin: 12px 0 20px; max-width: 80%; }
+
+        button {
+            padding: 15px 40px; font-size: 1.5rem; font-family: inherit;
+            background: var(--ui-color); border: none; color: white;
+            border-radius: 30px; cursor: pointer;
+            transition: transform 0.2s, background 0.2s; pointer-events: all;
+        }
+
+        @media (hover: hover) {
+            button:hover { transform: scale(1.1); background: #ff5e7a; }
+        }
+
+        #ad-btn {
+            margin-top: 14px; padding: 12px 28px; font-size: clamp(1rem, 4.5vw, 1.25rem);
+            background: transparent; border: 2px solid var(--ui-color);
+        }
+        #ad-btn:disabled { opacity: 0.6; transform: none; }
+
+        .links { display: flex; gap: 20px; margin-top: 32px; }
+        .link-btn {
+            padding: 6px 4px; font-size: 0.95rem; border-radius: 0;
+            background: none; color: var(--muted-color); text-decoration: underline;
+        }
+        .link-btn:hover { transform: none; background: none; color: var(--text-color); }
+
+        #toast {
+            position: absolute; left: 50%; bottom: calc(40px + env(safe-area-inset-bottom, 0px));
+            transform: translateX(-50%); max-width: 90%; box-sizing: border-box;
+            padding: 10px 18px; border-radius: 12px; background: rgba(0, 0, 0, 0.85);
+            color: white; font-size: 1rem; text-align: center; z-index: 20; pointer-events: none;
+        }
+
+        /* Measures the phone's safe area so the play border stays visible */
+        #safe-probe {
+            position: fixed; visibility: hidden; pointer-events: none;
+            padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+        }
+
+        dialog {
+            width: min(640px, calc(100vw - 32px)); max-height: calc(100% - 48px);
+            padding: 0; border: 1px solid var(--border-color); border-radius: 16px;
+            background: #171728; color: #e8e8f4; user-select: text; -webkit-user-select: text;
+        }
+        dialog[open] { display: flex; flex-direction: column; }
+        dialog::backdrop { background: rgba(5, 5, 12, 0.75); }
+        .dlg-hd {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 12px 12px 12px 20px; border-bottom: 1px solid var(--border-color);
+        }
+        .dlg-hd h2 { margin: 0; font-size: 1.25rem; }
+        .dlg-x { padding: 2px 12px; font-size: 1.8rem; line-height: 1; border-radius: 10px; background: none; }
+        .dlg-x:hover { transform: none; background: rgba(255, 255, 255, 0.08); }
+        .policy {
+            padding: 4px 20px 20px; overflow-y: auto; min-height: 0;
+            touch-action: pan-y; font-size: 0.95rem; line-height: 1.55;
+        }
+        .policy h3 { margin: 20px 0 6px; font-size: 1.05rem; color: var(--text-color); }
+        .policy li { margin: 4px 0; }
+        .policy a { color: #ff8aa0; }
+        .pp-date { color: var(--muted-color); }
+
+        .hidden { display: none !important; opacity: 0; }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <div id="ui-layer">
+        <div class="stat-box">Score: <span id="score">0</span></div>
+        <div class="stat-box">Time: <span id="timer">60</span>s</div>
+        <div class="stat-box">High: <span id="high-score">0</span></div>
+    </div>
+
+    <div id="overlay">
+        <h1 id="overlay-title">SHAPE POP</h1>
+        <p id="overlay-desc">Sweep the trail to pop shapes!<br><span style="color:#ff6b6b">Avoid Red Shapes!</span></p>
+        <button id="start-btn">START GAME</button>
+        <button id="continue-btn" class="hidden">CONTINUE</button>
+        <button id="ad-btn" class="hidden">Watch an ad for +15 seconds</button>
+        <div class="links">
+            <button class="link-btn" id="privacy-btn">Privacy policy</button>
+            <button class="link-btn hidden" id="ad-choices-btn">Ad privacy choices</button>
+        </div>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+    <div id="toast" class="hidden"></div>
+    <div id="safe-probe"></div>
+</div>
+
+<dialog id="privacy-dlg" aria-labelledby="pp-title">
+    <div class="dlg-hd"><h2 id="pp-title">Privacy policy</h2><button class="dlg-x" data-close aria-label="Close">×</button></div>
+    <div class="policy" id="privacy-body"></div>
+</dialog>
+<!-- The privacy policy. scripts/configure.js also turns this into store/privacy-policy.html, the page you put online.
+     {{DEVELOPER}} and {{CONTACT}} are filled in from developerName and contactEmail in ad-settings.json. -->
+<template id="privacyPolicy">
+<p class="pp-date">Last updated: 31 October 2026</p>
+<p>Shape Pop is a single-player arcade game made by {{DEVELOPER}} ("we", "us"). This policy explains what information the game uses and why. In short: we don't collect any information about you. The phone app can show optional ads from Google AdMob, and Google handles the information those ads need.</p>
+<h3>The game itself</h3>
+<ul>
+  <li>Your high score is stored only on your device. It is never sent to us.</li>
+  <li>There are no accounts, no sign-in, no chat and no in-app purchases.</li>
+  <li>We don't run any analytics or tracking of our own, and we have no servers that receive your data.</li>
+  <li>The game doesn't ask for your location, contacts, photos, camera or microphone. Its sounds are generated on your device.</li>
+  <li>Uninstalling the app, or clearing its storage, deletes your high score.</li>
+</ul>
+<h3>Ads in the phone app</h3>
+<p>When a round ends, the Android and iPhone versions of the game can offer a rewarded video ad that gives you 15 more seconds. An ad only plays when you tap the button that offers one. Google AdMob provides these ads. To show ads, measure them and prevent fraud, Google's ad software in the app may collect:</p>
+<ul>
+  <li>your device's advertising ID and other device identifiers;</li>
+  <li>your IP address, which can be used to estimate your general location;</li>
+  <li>information about your device and the app, such as the model, operating system and language;</li>
+  <li>how you interact with ads, plus diagnostic data such as crash and performance information.</li>
+</ul>
+<p>This information goes straight to Google, not to us. Google explains how it uses it in <a href="https://policies.google.com/technologies/partner-sites" target="_blank" rel="noopener">How Google uses information from sites or apps that use our services</a> and in the <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Google Privacy Policy</a>.</p>
+<p><b>Your choices.</b> If you are in the European Economic Area, the UK or Switzerland, the app uses Google's consent message to ask for your consent before ads are shown. You can change your answer at any time with the <b>Ad privacy choices</b> button on the game's start screen. On Android you can reset or delete your advertising ID in your phone's settings (usually Settings → Google → Ads, or Settings → Privacy → Ads). On iPhone you can control tracking in Settings → Privacy &amp; Security → Tracking.</p>
+<h3>Children</h3>
+<p>Shape Pop is not directed at children under 13, and we don't knowingly collect personal information from anyone. If you have a concern about a child's use of the game, please contact us.</p>
+<h3>Sharing and selling</h3>
+<p>We don't sell or share personal information, because we don't receive any. The only other company involved is Google AdMob, which provides the ads in the phone app, as described above.</p>
+<h3>Security and how long data is kept</h3>
+<p>Information sent to Google is encrypted while it travels. Data stored on your device stays there until you delete the app or its data. Google keeps ad data according to its own policies.</p>
+<h3>Changes to this policy</h3>
+<p>If this policy changes, we will update this page and the date at the top.</p>
+<h3>Contact</h3>
+<p>If you have questions about privacy in Shape Pop, contact {{DEVELOPER}} {{CONTACT}}.</p>
+</template>
+
+<script>
+/**
+ * AUDIO ENGINE (FIXED)
+ */
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function playPopSound(pitch, isNegative = false) {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = isNegative ? 'sawtooth' : 'sine';
+    osc.frequency.setValueAtTime(pitch, audioCtx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(10, audioCtx.currentTime + 0.15);
+    gain.gain.setValueAtTime(isNegative ? 0.2 : 0.3, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.start(); osc.stop(audioCtx.currentTime + 0.15);
+}
+
+/**
+ * GAME ENGINE
+ */
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const scoreEl = document.getElementById('score');
+const timerText = document.getElementById('timer');
+const highscoreEl = document.getElementById('high-score');
+const overlay = document.getElementById('overlay');
+const startBtn = document.getElementById('start-btn');
+const continueBtn = document.getElementById('continue-btn');
+
+const ROUND_SECONDS = 60;
+const BONUS_SECONDS = 15;   // what the optional rewarded ad gives when a round ends
+
+// Storage can be blocked in some browsers; the game still works, it just forgets the high score
+function loadHighScore() { try { return Number(localStorage.getItem('shapePopHighScore')) || 0; } catch (e) { return 0; } }
+function saveHighScore() { try { localStorage.setItem('shapePopHighScore', highScore); } catch (e) {} }
+
+let score = 0;
+let highScore = loadHighScore();
+let timeLeft = ROUND_SECONDS;
+let gameActive = false;
+let bonusUsed = false;
+let shapes = [];
+let particles = [];
+let trailPoints = [];
+const borderPadding = 30;
+let W = 0, H = 0;                        // screen size in CSS pixels
+let area = { l: 0, t: 0, r: 0, b: 0 };   // the play border, inside the phone's safe area
+let mouseX = 0, mouseY = 0, isMouseDown = false;
+
+highscoreEl.textContent = highScore;
+
+// Configuration for different shape "species"
+const SHAPE_TYPES = [
+    { type: 'circle', radius: 15, color: '#4ecdc4', points: 10, multiplier: 1 },
+    { type: 'square', radius: 18, color: '#ff6b6b', points: -25, multiplier: -1 }, // THE RED HAZARD
+    { type: 'triangle', radius: 22, color: '#ffe66d', points: 50, multiplier: 1 },
+    { type: 'star', radius: 28, color: '#a29bfe', points: 100, multiplier: 1 }
+];
+
+class Shape {
+    constructor() {
+        const config = SHAPE_TYPES[Math.floor(Math.random() * SHAPE_TYPES.length)];
+        this.type = config.type;
+        this.radius = config.radius + (Math.random() * 10);
+        this.color = config.color;
+        this.points = config.points;
+        this.multiplier = config.multiplier;
+
+        // Randomly choose movement pattern
+        const patterns = ['linear', 'arc', 'spiral'];
+        this.pattern = patterns[Math.floor(Math.min(2, Math.random() * 3))];
+
+        // Spawn fully inside the border so new shapes don't get stuck on it
+        this.x = area.l + this.radius + Math.random() * Math.max(0, area.r - area.l - this.radius * 2);
+        this.y = area.t + this.radius + Math.random() * Math.max(0, area.b - area.t - this.radius * 2);
+
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 1.5 + Math.random() * 3;
+        this.vx = Math.cos(angle) * speed;
+        this.vy = Math.sin(angle) * speed;
+
+        // For Arc/Spiral math
+        this.phase = Math.random() * Math.PI * 2;
+        this.orbitX = (Math.random() - 0.5) * 100;
+        this.orbitY = (Math.random() - 0.5) * 100;
+    }
+
+    // f is 1 at 60 fps, so shapes move at the same speed on 90 and 120 Hz phone screens
+    update(f) {
+        if (this.pattern === 'linear') {
+            this.x += this.vx * f;
+            this.y += this.vy * f;
+        } else if (this.pattern === 'arc') {
+            // Sine wave movement path
+            this.x += this.vx * f;
+            this.y += (this.vy + Math.sin(this.x * 0.02 + this.phase) * 2) * f;
+        } else if (this.pattern === 'spiral') {
+            // Rotate velocity around a point
+            const angle = 0.05 * f;
+            const cos = Math.cos(angle);
+            const sin = Math.sin(angle);
+            const nx = this.vx * cos - this.vy * sin;
+            const ny = this.vx * sin + this.vy * cos;
+            this.vx = nx; this.vy = ny;
+            this.x += this.vx * f;
+            this.y += this.vy * f;
+            // Pull towards a center to keep it from flying away
+            this.vx += (W/2 - this.x) * 0.001 * f;
+            this.vy += (H/2 - this.y) * 0.001 * f;
+        }
+        this._bounce();
+    }
+
+    // Only turn around when heading outwards, so a shape on the border can't jitter in place
+    _bounce() {
+        if ((this.x - this.radius < area.l && this.vx < 0) || (this.x + this.radius > area.r && this.vx > 0)) this.vx *= -1;
+        if ((this.y - this.radius < area.t && this.vy < 0) || (this.y + this.radius > area.b && this.vy > 0)) this.vy *= -1;
+    }
+
+    draw() {
+        ctx.beginPath();
+        ctx.fillStyle = this.color;
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = this.color;
+
+        if (this.type === 'circle') ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+        else if (this.type === 'square') ctx.rect(this.x - this.radius, this.y - this.radius, this.radius*2, this.radius*2);
+        else if (this.type === 'triangle') {
+            ctx.moveTo(this.x, this.y - this.radius);
+            ctx.lineTo(this.x - this.radius, this.y + this.radius);
+            ctx.lineTo(this.x + this.radius, this.y + this.radius);
+        } else if (this.type === 'star') {
+            for(let i=0; i<5; i++) {
+                const a = (i * 72) * Math.PI / 180;
+                ctx.lineTo(this.x + Math.cos(a)*this.radius, this.y + Math.sin(a)*this.radius);
+                const b = (i * 72 + 36) * Math.PI / 180;
+                ctx.lineTo(this.x + Math.cos(b)*(this.radius/2), this.y + Math.sin(b)*(this.radius/2));
+            }
+        }
+        ctx.fill();
+        ctx.shadowBlur = 0;
+    }
+}
+
+class Particle {
+    constructor(x, y, text, color) {
+        this.x = x; this.y = y; this.text = text; this.color = color;
+        this.alpha = 1; this.vy = -2;
+    }
+    update(f) { this.y += this.vy * f; this.alpha -= 0.02 * f; }
+    draw() {
+        ctx.globalAlpha = Math.max(0, this.alpha);
+        ctx.fillStyle = this.color; ctx.font = "bold 24px Arial"; ctx.textAlign = "center";
+        ctx.fillText(this.text, this.x, this.y);
+        ctx.globalAlpha = 1;
+    }
+}
+
+function resize() {
+    // Draw at the screen's real pixel density so shapes look sharp on phones (capped to keep the glow fast)
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth;
+    H = window.innerHeight;
+    canvas.width = Math.round(W * dpr);
+    canvas.height = Math.round(H * dpr);
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    const safe = getComputedStyle(document.getElementById('safe-probe'));
+    const inset = side => parseFloat(safe['padding' + side]) || 0;
+    area = {
+        l: borderPadding + inset('Left'),
+        t: borderPadding + inset('Top'),
+        r: W - borderPadding - inset('Right'),
+        b: H - borderPadding - inset('Bottom')
+    };
+}
+window.addEventListener('resize', resize);
+resize();
+
+// Input logic with "Vacuum" collision
+const updateMousePos = (e) => {
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    mouseX = clientX; mouseY = clientY;
+    // Add point to trail (shorter trail by limiting array length)
+    trailPoints.push({ x: mouseX, y: mouseY, life: 1.0 });
+    if (trailPoints.length > 20) trailPoints.splice(0, trailPoints.length - 20);
+};
+
+// Corrected Mouse handling
+canvas.addEventListener('mousedown', (e) => { isMouseDown = true; updateMousePos(e); if(audioCtx.state === 'suspended') audioCtx.resume(); });
+window.addEventListener('mouseup', () => isMouseDown = false);
+window.addEventListener('mousemove', (e) => {
+    const clientX = e.clientX; const clientY = e.clientY;
+    mouseX = clientX; mouseY = clientY;
+    if(isMouseDown) trailPoints.push({ x: mouseX, y: mouseY, life: 1.0 });
+});
+
+// Touch Support
+canvas.addEventListener('touchstart', (e) => { isMouseDown = true; updateMousePos(e); if(audioCtx.state === 'suspended') audioCtx.resume(); }, {passive:false});
+canvas.addEventListener('touchend', () => isMouseDown = false);
+canvas.addEventListener('touchcancel', () => isMouseDown = false);
+canvas.addEventListener('touchmove', (e) => { e.preventDefault(); updateMousePos(e); }, {passive:false});
+
+function startGame() {
+    score = 0; timeLeft = ROUND_SECONDS; shapes = []; particles = []; trailPoints = [];
+    bonusUsed = false; scoreEl.textContent = score;
+    runRound();
+}
+
+// Starts the round, or continues it after the bonus ad. The clock runs inside the game loop,
+// so it stops while the app is in the background.
+function runRound() {
+    gameActive = true; isMouseDown = false; lastTime = 0;
+    timerText.textContent = Math.ceil(timeLeft);
+    overlay.classList.add('hidden');
+    requestAnimationFrame(gameLoop);
+}
+
+function endGame() {
+    gameActive = false; overlay.classList.remove('hidden');
+    document.getElementById('overlay-title').textContent = "TIME'S UP!";
+    document.getElementById('overlay-desc').textContent = `Final Score: ${score}`;
+    startBtn.textContent = 'PLAY AGAIN';
+    startBtn.classList.remove('hidden');
+    continueBtn.classList.add('hidden');
+    adBtn.classList.toggle('hidden', bonusUsed || !nativeAdMob());
+    if (score > highScore) { highScore = score; saveHighScore(); highscoreEl.textContent = highScore; }
+}
+
+let lastTime = 0;
+function gameLoop(timestamp) {
+    if (!gameActive) return;
+    // Capped, so coming back from the background (or a slow frame) doesn't jump ahead
+    const dt = lastTime ? Math.min((timestamp - lastTime) / 1000, 0.1) : 1 / 60;
+    lastTime = timestamp;
+    const f = dt * 60;
+
+    timeLeft -= dt;
+    if (timeLeft <= 0) { timeLeft = 0; timerText.textContent = 0; endGame(); return; }
+    timerText.textContent = Math.ceil(timeLeft);
+
+    ctx.clearRect(0, 0, W, H);
+
+    // Draw Play Area Border
+    ctx.strokeStyle = '#303050';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(area.l, area.t, area.r - area.l, area.b - area.t);
+
+    // Update Trail (The Ribbon)
+    ctx.beginPath();
+    ctx.lineWidth = isMouseDown ? 10 : 2;
+    ctx.strokeStyle = isMouseDown ? "rgba(255, 255, 255, 0.8)" : "rgba(255, 255, 255, 0.1)";
+    ctx.lineCap = "round";
+    for (let i = 0; i < trailPoints.length; i++) {
+            const p = trailPoints[i];
+            if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
+            p.life -= dt * 3; // Fast decay for "shorter" trail
+    }
+    ctx.stroke();
+    trailPoints = trailPoints.filter(p => p.life > 0);
+
+    // Spawning
+    const progress = Math.max(0, (ROUND_SECONDS - timeLeft) / ROUND_SECONDS);
+    if (shapes.length < (50 + Math.floor(progress * 50)) && Math.random() < 0.12 * f) shapes.push(new Shape());
+
+    // Collision: Cursor/Point-based AND Trail Segment-based
+    for (let i = shapes.length - 1; i >= 0; i--) {
+        const s = shapes[i];
+        let popped = false;
+
+        // Check distance to current cursor (Standard Click)
+        const distToMouse = Math.hypot(s.x - mouseX, s.y - mouseY);
+        if (isMouseDown && distToMouse < s.radius + 20) popped = true;
+
+        // Check collision with any point in the trail (The Vacuum effect)
+        if (!popped) {
+            for(let j = 0; j < trailPoints.length; j++) {
+                const tp = trailPoints[j];
+                if (Math.hypot(s.x - tp.x, s.y - tp.y) < s.radius + 10) {
+                    popped = true; break;
+                }
+            }
+        }
+
+        if (popped) {
+            score += s.points; // s.points is negative for red shapes
+            scoreEl.textContent = score;
+            playPopSound(s.multiplier < 0 ? 150 : (200 + Math.random()*500), s.multiplier < 0);
+            particles.push(new Particle(s.x, s.y, (s.points > 0 ? "+" : "") + s.points, s.color));
+            shapes.splice(i, 1);
+        } else {
+            s.update(f);
+            s.draw();
+        }
+    }
+
+    // Particles
+    for (let i = particles.length - 1; i >= 0; i--) {
+        particles[i].update(f);
+        particles[i].draw();
+        if (particles[i].alpha <= 0) particles.splice(i, 1);
+    }
+
+    requestAnimationFrame(gameLoop);
+}
+
+startBtn.addEventListener('click', startGame);
+continueBtn.addEventListener('click', () => {
+    continueBtn.classList.add('hidden');
+    timeLeft = BONUS_SECONDS;
+    runRound();
+});
+
+/**
+ * MESSAGES
+ */
+const toastEl = document.getElementById('toast');
+let toastTimer = 0;
+function toast(msg) {
+    toastEl.textContent = msg; toastEl.classList.remove('hidden');
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => toastEl.classList.add('hidden'), 3800);
+}
+
+/**
+ * OPTIONAL REWARDED AD (phone app only): 15 more seconds when a round ends, once per round.
+ * The phone app replaces these settings from ad-settings.json (see the BallGame-app folder).
+ */
+const AD = Object.assign({
+    testing: true,
+    androidRewardedAdUnitId: 'ca-app-pub-3940256099942544/5224354917',
+    iosRewardedAdUnitId: 'ca-app-pub-3940256099942544/1712485313',
+    buttonLabel: 'Watch an ad for +15 seconds',
+    developerName: '',
+    contactEmail: '',
+}, window.SP_AD_SETTINGS || {});
+const adBtn = document.getElementById('ad-btn');
+adBtn.textContent = AD.buttonLabel;
+let adPlugin = null, adReady = false, adBusy = false;
+
+function nativeAdMob() {
+    try {
+        const cap = window.Capacitor;
+        if (!cap || typeof cap.isNativePlatform !== 'function' || !cap.isNativePlatform()) return null;
+        if (!adPlugin) adPlugin = typeof cap.registerPlugin === 'function' ? cap.registerPlugin('AdMob') : (cap.Plugins && cap.Plugins.AdMob) || null;
+        return adPlugin;
+    } catch (e) { return null; }
+}
+async function prepareAds(A) {
+    if (adReady) return true;
+    const info = await A.requestConsentInfo();
+    let can = info.canRequestAds !== false;
+    if (info.isConsentFormAvailable && info.status === 'REQUIRED') { const after = await A.showConsentForm(); can = !after || after.canRequestAds !== false; }
+    if (!can) return false;
+    await A.initialize({ initializeForTesting: !!AD.testing });
+    adReady = true; return true;
+}
+async function watchAd() {
+    const A = nativeAdMob();
+    if (!A || adBusy || bonusUsed) return;
+    adBusy = true; adBtn.disabled = true; adBtn.textContent = 'Loading ad…';
+    let rewarded = false; const handles = [];
+    const grant = () => { rewarded = true; };
+    try {
+        if (!(await prepareAds(A))) throw new Error('no consent');
+        try { handles.push(await A.addListener('onRewardedVideoAdReward', grant)); } catch (e) {}
+        const platform = window.Capacitor.getPlatform ? window.Capacitor.getPlatform() : 'android';
+        await A.prepareRewardVideoAd({ adId: platform === 'ios' ? AD.iosRewardedAdUnitId : AD.androidRewardedAdUnitId, isTesting: !!AD.testing });
+        audioCtx.suspend();   // the ad has its own sound
+        const item = await A.showRewardVideoAd();
+        if (item && (item.amount > 0 || item.type)) grant();
+    } catch (e) {
+        if (!rewarded) toast('No ad is available right now. Please try again later.');
+    }
+    for (const hd of handles) { try { hd.remove(); } catch (e) {} }
+    adBusy = false; adBtn.disabled = false; adBtn.textContent = AD.buttonLabel;
+    // The player taps Continue when ready, instead of the clock starting while the ad closes
+    if (rewarded) {
+        bonusUsed = true;
+        adBtn.classList.add('hidden');
+        startBtn.classList.add('hidden');
+        continueBtn.classList.remove('hidden');
+        document.getElementById('overlay-title').textContent = 'BONUS TIME!';
+        document.getElementById('overlay-desc').textContent = `+${BONUS_SECONDS} seconds. Your score so far: ${score}`;
+    }
+}
+adBtn.addEventListener('click', watchAd);
+
+/**
+ * PRIVACY POLICY and AD PRIVACY CHOICES
+ */
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+// scripts/configure.js fills in the online copy the same way
+function privacyHTML() {
+    const name = String(AD.developerName || '').trim(), mail = String(AD.contactEmail || '').trim();
+    return document.getElementById('privacyPolicy').innerHTML
+        .replaceAll('{{DEVELOPER}}', name ? esc(name) : 'the developer of Shape Pop')
+        .replaceAll('{{CONTACT}}', mail ? `at <a href="mailto:${esc(mail)}">${esc(mail)}</a>` : 'using the email address on the Shape Pop page in Google Play');
+}
+const privacyDlg = document.getElementById('privacy-dlg');
+const privacyBody = document.getElementById('privacy-body');
+document.getElementById('privacy-btn').addEventListener('click', () => {
+    privacyBody.innerHTML = privacyHTML();
+    if (typeof privacyDlg.showModal === 'function') privacyDlg.showModal(); else privacyDlg.setAttribute('open', '');
+    privacyBody.scrollTop = 0;
+});
+privacyDlg.addEventListener('click', e => {
+    if (e.target !== privacyDlg && !e.target.closest('[data-close]')) return;
+    if (typeof privacyDlg.close === 'function') privacyDlg.close(); else privacyDlg.removeAttribute('open');
+});
+
+// Lets players in Europe change their ad consent later, which Google requires
+const adChoicesBtn = document.getElementById('ad-choices-btn');
+adChoicesBtn.classList.toggle('hidden', !nativeAdMob());
+adChoicesBtn.addEventListener('click', async () => {
+    const A = nativeAdMob(); if (!A) return;
+    try {
+        await A.requestConsentInfo();
+        await A.showPrivacyOptionsForm();
+    } catch (e) {
+        try {
+            await A.resetConsentInfo();
+            const info = await A.requestConsentInfo();
+            if (info && info.isConsentFormAvailable) await A.showConsentForm();
+            else toast('There are no ad privacy choices to make in your region.');
+        } catch (e2) { toast('Ad privacy choices are not available right now. Please try again later.'); }
+    }
+});
+</script>
+</body>
+</html>
