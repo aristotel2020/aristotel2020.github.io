@@ -2,7 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#0b1118">
+<meta name="mobile-web-app-capable" content="yes">
 <title>SkyRidge Flight</title>
 <style>
 /* SkyRidge: open-world browser flight sim. Dark glass UI over a bright daytime world. */
@@ -14,8 +16,8 @@
   color-scheme:dark;
 }
 *{box-sizing:border-box}
-html,body{margin:0;height:100%;overflow:hidden;background:#0b1118;color:var(--fg);font:14px/1.45 var(--font);-webkit-font-smoothing:antialiased}
-#gl{position:fixed;inset:0;width:100%;height:100%;display:block}
+html,body{margin:0;height:100%;overflow:hidden;background:#0b1118;color:var(--fg);font:14px/1.45 var(--font);-webkit-font-smoothing:antialiased;touch-action:none;-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none}
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
 #hud{position:fixed;inset:0;width:100%;height:100%;pointer-events:none}
 #cloudfog{position:fixed;inset:0;pointer-events:none;opacity:0;background:#eef2f5}
 #vignette{position:fixed;inset:0;pointer-events:none;opacity:0;background:radial-gradient(ellipse at center,rgba(0,0,0,0) 30%,rgba(0,0,0,.96) 100%)}
@@ -26,7 +28,7 @@ html,body{margin:0;height:100%;overflow:hidden;background:#0b1118;color:var(--fg
 .overlay{position:fixed;inset:0;display:none;align-items:center;justify-content:center;padding:16px;z-index:20}
 .overlay.show{display:flex}
 .overlay.dim{background:rgba(4,8,12,.35)}
-.panel{background:var(--panel);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid var(--line);border-radius:18px;box-shadow:0 24px 70px rgba(0,0,0,.5);max-height:calc(100vh - 32px);overflow:auto}
+.panel{background:var(--panel);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid var(--line);border-radius:18px;box-shadow:0 24px 70px rgba(0,0,0,.5);max-height:calc(100vh - 32px);max-height:calc(100dvh - 32px);overflow:auto;touch-action:pan-y;overscroll-behavior:contain}
 .panel.narrow{width:min(520px,100%);padding:26px 28px}
 .panel.wide{width:min(1120px,100%);padding:22px 26px}
 .title{font-weight:800;letter-spacing:.2em;font-size:46px;margin:0;line-height:1.05;background:linear-gradient(180deg,#ffffff 20%,#ffcf8a);-webkit-background-clip:text;background-clip:text;color:transparent}
@@ -118,6 +120,30 @@ select.focus,select:focus-visible{outline:2px solid var(--accent)}
 .achrow small{display:block;color:var(--muted)}
 .daily{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:12px;border:1px solid rgba(255,210,122,.5);background:rgba(255,210,122,.08);margin:8px 0 2px;font-size:13px}
 .daily .sbtn{margin-left:auto}
+.btn[hidden]{display:none}
+/* touch screen: two thumb pads and buttons, shown only while flying with touch */
+:root{--stk:min(36vmin,170px)}
+#touch{position:fixed;inset:0;pointer-events:none;display:none;z-index:10;-webkit-user-select:none;user-select:none}
+body.touchmode #touch{display:block}
+body.touchmode #soundHint{right:auto;left:50%;transform:translateX(-50%);top:64px}
+#touch .stick{position:absolute;bottom:calc(16px + env(safe-area-inset-bottom));width:var(--stk);height:var(--stk);border-radius:24px;border:2px solid rgba(255,255,255,.25);background:rgba(8,14,22,.28);pointer-events:auto;touch-action:none}
+#stL{left:calc(16px + env(safe-area-inset-left))}
+#stR{right:calc(16px + env(safe-area-inset-right))}
+#touch .knob{position:absolute;width:44%;height:44%;left:28%;top:28%;border-radius:50%;background:radial-gradient(circle at 40% 35%,rgba(255,255,255,.6),rgba(255,255,255,.16));border:2px solid rgba(255,255,255,.55);pointer-events:none}
+#touch .slab{position:absolute;left:0;right:0;top:6px;text-align:center;font:700 9.5px var(--font);letter-spacing:.08em;color:rgba(255,255,255,.55);pointer-events:none}
+#touch .tb{position:absolute;pointer-events:auto;touch-action:none;width:50px;height:50px;border-radius:50%;display:grid;place-items:center;text-align:center;font:800 10.5px/1.05 var(--font);color:#fff;background:rgba(8,14,22,.42);border:2px solid rgba(255,255,255,.32)}
+#touch .tb.on{background:rgba(255,181,71,.5);border-color:var(--accent)}
+#tFire{width:82px!important;height:82px!important;font-size:15px!important;right:calc(var(--stk) + 30px + env(safe-area-inset-right));bottom:calc(26px + env(safe-area-inset-bottom));background:rgba(255,61,90,.32)!important;border-color:rgba(255,90,110,.85)!important}
+#tFire.on{background:rgba(255,61,90,.65)!important}
+#tBrake{width:62px!important;height:62px!important;left:calc(var(--stk) + 30px + env(safe-area-inset-left));bottom:calc(26px + env(safe-area-inset-bottom))}
+#tFlapUp,#tFlapDn,#tTrim{bottom:calc(var(--stk) + 28px + env(safe-area-inset-bottom))}
+#tFlapUp{left:calc(16px + env(safe-area-inset-left))}
+#tFlapDn{left:calc(74px + env(safe-area-inset-left))}
+#tTrim{left:calc(132px + env(safe-area-inset-left))}
+#tPause,#tCam,#tMode{top:calc(10px + env(safe-area-inset-top))}
+#tPause{right:calc(14px + env(safe-area-inset-right))}
+#tCam{right:calc(72px + env(safe-area-inset-right))}
+#tMode{right:calc(130px + env(safe-area-inset-right))}
 #hangar .panel{width:min(680px,100%)}
 @media (min-width:901px){#hangar.overlay{justify-content:flex-start;padding-left:3vw}}
 #dmg{position:fixed;inset:0;pointer-events:none;opacity:0;background:radial-gradient(ellipse at center,rgba(255,0,0,0) 45%,rgba(255,40,20,.6) 100%)}
@@ -133,6 +159,18 @@ select.focus,select:focus-visible{outline:2px solid var(--accent)}
 <div id="dmg"></div>
 <div id="toast"></div>
 <div id="soundHint">🔇 Click anywhere to enable sound</div>
+<div id="touch">
+  <div class="stick" id="stL"><span class="slab">THROTTLE · RUDDER</span><div class="knob"></div></div>
+  <div class="stick" id="stR"><span class="slab" id="stRlab">STICK</span><div class="knob"></div></div>
+  <div class="tb" id="tFire">FIRE</div>
+  <div class="tb" id="tBrake">BRAKE</div>
+  <div class="tb" id="tFlapUp">FLAP<br>▲</div>
+  <div class="tb" id="tFlapDn">FLAP<br>▼</div>
+  <div class="tb" id="tTrim">TRIM</div>
+  <div class="tb" id="tPause">II</div>
+  <div class="tb" id="tCam">CAM</div>
+  <div class="tb" id="tMode">NAT</div>
+</div>
 
 <div id="loading" class="overlay show">
   <div class="panel loadbox">
@@ -149,6 +187,7 @@ select.focus,select:focus-visible{outline:2px solid var(--accent)}
     <div class="chips" id="menuChips"></div>
     <div id="padChip" class="chip">🎮 <span>Press any button on your controller</span></div>
     <div id="dailyBox"></div>
+    <button class="btn" data-act="fullscreen" id="fsBtn" hidden>⛶ Play full screen<small>Hides the browser bars. Turn your phone sideways to fly</small></button>
     <div style="height:6px"></div>
     <button class="btn primary" data-act="missions">Missions<small id="menuMisSub">Rings, rockets, landings and combat</small></button>
     <div class="row2">
@@ -239,6 +278,13 @@ select.focus,select:focus-visible{outline:2px solid var(--accent)}
           <tr><td>△ / □</td><td>Camera / HUD mode</td></tr>
           <tr><td>Touchpad</td><td>Map zoom</td></tr>
           <tr><td>Options / Share</td><td>Pause / restart flight</td></tr>
+        </table>
+        <h3>Touch screen</h3>
+        <table class="help">
+          <tr><td>Left pad</td><td>Slide up / down for throttle (it stays where you leave it), left / right for rudder</td></tr>
+          <tr><td>Right pad</td><td>The flight stick: drag down = nose up. In Arcade it moves the aim circle (dragging the view works too)</td></tr>
+          <tr><td>Buttons</td><td>FIRE, BRAKE, flaps ▲▼, TRIM (auto-trim), CAM, NAT / ARC mode and II (pause)</td></tr>
+          <tr><td>Tips</td><td>Hold the phone sideways. Arcade mode is the easiest way to fly with thumbs. Natural mode: drag the view to look around</td></tr>
         </table>
         <h3>Keyboard &amp; mouse</h3>
         <table class="help">
@@ -382,7 +428,7 @@ const DEFAULT_SETTINGS = {
   curves: { roll: { expo: 0.45, rate: 1.0, dead: 0.06 }, pitch: { expo: 0.50, rate: 1.0, dead: 0.06 }, yaw: { expo: 0.25, rate: 1.0, dead: 0.05 } },
   assists: { autoRudder: false, invertPitch: false },
   quality: 'medium', timeOfDay: 'midday', wind: 'light', units: 'aviation', volume: 0.7, fov: 65, showInputs: true,
-  flightMode: 'natural', mouseSens: 1,
+  flightMode: 'natural', mouseSens: 1, touch: 'auto',
 };
 function deepMerge(base, over) {
   const out = Array.isArray(base) ? base.slice() : { ...base };
@@ -396,6 +442,8 @@ function loadSettings() {
   let saved = null;
   try { saved = JSON.parse(localStorage.getItem(STORE_KEY) || 'null'); } catch (e) { saved = null; }
   const s = deepMerge(DEFAULT_SETTINGS, saved);
+  // first run on a phone or tablet: lighter graphics and the thumb-friendly Arcade mode
+  if (!saved && matchMedia('(pointer:coarse)').matches) { s.quality = 'low'; s.flightMode = 'arcade'; }
   if (saved && saved.bind) for (const k of Object.keys(saved.bind)) s.bind[k] = saved.bind[k]; // bindings replace, never merge
   if (saved && saved.buttons && saved.buttons.fire === undefined) s.buttons = { ...DEFAULT_SETTINGS.buttons }; // old layout had smoke on ○, which now fires
   return s;
@@ -2047,6 +2095,7 @@ function pollControls(dt) {
   const kY = (key('KeyD') || key('KeyE') ? 1 : 0) - (key('KeyA') || key('KeyQ') ? 1 : 0);
   kb.roll = approach(kb.roll, kR, dt * (kR ? 2.5 : 5)); kb.pitch = approach(kb.pitch, kP, dt * (kP ? 2 : 5)); kb.yaw = approach(kb.yaw, kY, dt * (kY ? 2.5 : 5));
   let r = readBinding(S.bind.roll), p = readBinding(S.bind.pitch), y = readBinding(S.bind.yaw);
+  if (Touch.shown) { r = clamp(r + Touch.roll, -1, 1); p = clamp(p + Touch.pitch, -1, 1); y = clamp(y + Touch.yaw, -1, 1); }
   ctl.raw.roll = r; ctl.raw.pitch = p; ctl.raw.yaw = y;
   r = applyCurve(r, S.curves.roll); p = applyCurve(p, S.curves.pitch); y = applyCurve(y, S.curves.yaw);
   if (S.assists.invertPitch) p = -p;
@@ -2069,7 +2118,7 @@ function pollControls(dt) {
   if (key('KeyW') || key('ShiftLeft') || key('PageUp') || key('Equal') || key('NumpadAdd')) ctl.throttle += 0.5 * dt;
   if (key('KeyS') || key('ControlLeft') || key('PageDown') || key('Minus') || key('NumpadSubtract')) ctl.throttle -= 0.5 * dt;
   ctl.throttle = clamp(ctl.throttle, 0, 1);
-  ctl.brake = Math.max(key('Space') || key('KeyB') ? 1 : 0, Pad.connected ? (Pad.btn[S.buttons.brake] || 0) : 0);
+  ctl.brake = Math.max(key('Space') || key('KeyB') || Touch.brake ? 1 : 0, Pad.connected ? (Pad.btn[S.buttons.brake] || 0) : 0);
   const lk = readBinding(S.bind.look);
   ctl.look = Math.abs(lk) < 0.2 ? 0 : lk;
   // trim (held)
@@ -2126,6 +2175,61 @@ function arcadePilot(dt) {
 }
 
 /* =====================================================================
+   Touch screen: two thumb pads and buttons, shown while flying once the
+   screen is touched (keyboard, mouse or controller use hides them again).
+   ===================================================================== */
+const Touch = {
+  active: matchMedia('(pointer:coarse)').matches, shown: false, roll: 0, pitch: 0, yaw: 0, brake: false, fire: false, modeLabel: '',
+  use(on) { if (S.touch === 'auto') this.active = on; },
+  get enabled() { return S.touch === 'on' || (S.touch !== 'off' && this.active); },
+  init() {
+    const pad = (id, move, end) => {
+      const el = $(id); let pid = null;
+      const go = (e, first) => { const r = el.getBoundingClientRect(); if (!r.width || !r.height) return; move(clamp((e.clientX - r.left) / r.width * 2 - 1, -1, 1), clamp((e.clientY - r.top) / r.height * 2 - 1, -1, 1), e, r, first); };
+      el.addEventListener('pointerdown', e => { e.preventDefault(); pid = e.pointerId; try { el.setPointerCapture(pid); } catch (er) { } this.use(true); sfx.init(); go(e, true); });
+      el.addEventListener('pointermove', e => { if (e.pointerId === pid) go(e, false); });
+      const fin = e => { if (e.pointerId === pid) { pid = null; end(); } };
+      for (const t of ['pointerup', 'pointercancel', 'lostpointercapture']) el.addEventListener(t, fin);
+      return el.querySelector('.knob');
+    };
+    // left pad: slide up/down to move the throttle (it stays put), left/right is rudder and springs back
+    let thr0 = 0, y0 = 0;
+    this.kL = pad('#stL', (x, y, e, r, first) => { if (first) { thr0 = ctl.throttle; y0 = e.clientY; } ctl.throttle = clamp(thr0 + (y0 - e.clientY) / (r.height * 0.8), 0, 1); this.yaw = x; }, () => { this.yaw = 0; });
+    // right pad: the flight stick, drag down = pull back = nose up (in Arcade it steers the aim)
+    this.kR = pad('#stR', (x, y) => { this.roll = x; this.pitch = y; }, () => { this.roll = 0; this.pitch = 0; });
+    const btn = (id, down, up) => {
+      const el = $(id);
+      el.addEventListener('pointerdown', e => { e.preventDefault(); this.use(true); sfx.init(); el.classList.add('on'); down(); });
+      const off = () => { el.classList.remove('on'); if (up) up(); };
+      for (const t of ['pointerup', 'pointercancel', 'pointerleave']) el.addEventListener(t, off);
+    };
+    btn('#tFire', () => { this.fire = true; }, () => { this.fire = false; });
+    btn('#tBrake', () => { this.brake = true; }, () => { this.brake = false; });
+    btn('#tFlapUp', () => flaps(-1)); btn('#tFlapDn', () => flaps(1)); btn('#tTrim', () => autoTrim());
+    btn('#tPause', () => pauseGame()); btn('#tCam', () => cycleView(1));
+    btn('#tMode', () => setFlightMode(S.flightMode === 'arcade' ? 'natural' : 'arcade'));
+    addEventListener('touchstart', () => this.use(true), { passive: true, capture: true });
+    addEventListener('touchend', () => { sfx.init(); setTimeout(updateSoundHint, 200); }, { passive: true, capture: true }); // iOS unlocks audio on touchend
+    addEventListener('pointerdown', e => { if (e.pointerType === 'mouse') this.use(false); }, { capture: true });
+    document.addEventListener('gesturestart', e => e.preventDefault()); // no pinch zoom on iOS
+  },
+  update() {
+    if (Pad.connected && Pad.btn.some(v => v > 0.5)) this.use(false);
+    const show = this.enabled && G.state === 'flying' && !topOverlay();
+    if (show !== this.shown) {
+      this.shown = show; document.body.classList.toggle('touchmode', show);
+      if (!show) { this.roll = this.pitch = this.yaw = 0; this.fire = this.brake = false; document.querySelectorAll('#touch .on').forEach(e => e.classList.remove('on')); }
+    }
+    if (!show) return;
+    const k = 56;
+    this.kL.style.transform = `translate(${this.yaw * k}%,${(1 - 2 * ctl.throttle) * k}%)`;
+    this.kR.style.transform = `translate(${this.roll * k}%,${this.pitch * k}%)`;
+    const ml = plane.arcade ? 'ARC' : 'NAT';
+    if (ml !== this.modeLabel) { this.modeLabel = ml; $('#tMode').textContent = ml; $('#stRlab').textContent = plane.arcade ? 'AIM' : 'STICK'; }
+  },
+};
+
+/* =====================================================================
    Game state
    ===================================================================== */
 const plane = new Plane(AIRCRAFT[SAVE.plane]);
@@ -2172,7 +2276,7 @@ function headingQuat(hdgDeg, pitch = 0, out = new Q4()) {
 // opt (air starts): { x, z, hdg, alt, msg }
 function spawn(mode, keepLanding = false, opt = null) {
   G.mode = mode; G.state = 'flying'; G.crashT = 0; G.maxG = 1; G.lastTouch = -99; G.msgs = [];
-  G.rearmT = 0; G.onGround = false; G.lowT = 0; G.loop.stage = 0;
+  G.rearmT = 0; G.onGround = false; G.lowT = 0; G.loop.stage = 0; G.spawnT = G.time;
   plane.reset(); particles.clear(); restorePlaneLook(); Weapons.clear();
   if (mode !== 'rings' && !(G.ms && G.ms.type === 'solo')) rings.stop();
   const A = AIRPORTS[0], kt = plane.sp.kt;
@@ -2369,7 +2473,9 @@ function drawHUD(dt) {
   const c = hctx, W = hudCanvas.width, H = hudCanvas.height;
   c.clearRect(0, 0, W, H);
   if (G.state === 'loading' || G.state === 'menu') return;
-  const s = Math.max(0.6, Math.min(W / 1600, H / 900));
+  // HUD scale in canvas pixels; on touch screens keep it readable on small phones
+  const dk = W / Math.max(innerWidth, 1), touch = Touch.shown;
+  const s = Math.max(0.6, dk * Math.max(touch ? 0.72 : 0, Math.min(innerWidth / 1600, innerHeight / 900)));
   const F = (px, w = 600) => `${w} ${Math.round(px * s)}px Segoe UI, system-ui, sans-serif`;
   const view = VIEWS[G.view], full = G.hudMode === 0, show = G.hudMode < 2 && G.state !== 'crashed';
   const att = attitude(), ias = plane.ias, altM = plane.pos.y, vs = plane.vel.y;
@@ -2429,7 +2535,9 @@ function drawHUD(dt) {
       c.strokeStyle = 'rgba(255,255,255,0.9)'; c.lineWidth = 2 * s; c.beginPath(); c.arc(scr.x, scr.y, 15 * s, 0, 7); c.stroke();
       c.fillStyle = '#fff'; c.beginPath(); c.arc(scr.x, scr.y, 2.5 * s, 0, 7); c.fill();
     }
-    if (!document.pointerLockElement && !Pad.connected && matchMedia('(pointer:fine)').matches) {
+    if (touch && G.time - G.spawnT < 8) {
+      c.font = F(13, 600); c.textAlign = 'center'; c.fillStyle = 'rgba(255,255,255,0.85)'; c.fillText('Steer the aim circle with the right pad, or drag the view', W / 2, H * 0.62);
+    } else if (!touch && !document.pointerLockElement && !Pad.connected && matchMedia('(pointer:fine)').matches) {
       c.font = F(13, 600); c.textAlign = 'center'; c.fillStyle = 'rgba(255,255,255,0.8)'; c.fillText('Click the view to aim with the mouse · arrow keys work too', W / 2, H - 186 * s);
     }
   }
@@ -2446,7 +2554,9 @@ function drawHUD(dt) {
   }
   if (show && full && view !== 'Cockpit') {
     // speed tape
-    const tx = W / 2 - 330 * s, ty = H * 0.45, th = 300 * s, tw = 74 * s;
+    // tapes sit closer in and higher on touch screens, clear of the thumb pads
+    const tOff = touch ? Math.min(330 * s, W * 0.175) : 330 * s;
+    const tx = W / 2 - tOff, ty = H * (touch ? 0.38 : 0.45), th = touch ? Math.min(300 * s, H * 0.5) : 300 * s, tw = 74 * s;
     const spdV = units.spd(ias), pxPer = th / (S.units === 'metric' ? 160 : 90);
     panelBG(c, tx - tw, ty - th / 2, tw, th, 8 * s);
     c.save(); c.beginPath(); c.rect(tx - tw, ty - th / 2, tw, th); c.clip();
@@ -2467,7 +2577,7 @@ function drawHUD(dt) {
     c.font = F(11); c.fillStyle = 'rgba(255,255,255,0.65)'; c.fillText('IAS ' + units.spdU(), tx - tw / 2, ty - th / 2 - 10 * s);
     c.fillText('GS ' + Math.round(units.spd(Math.hypot(plane.vel.x, plane.vel.z))), tx - tw / 2, ty + th / 2 + 12 * s);
     // altitude tape
-    const ax = W / 2 + 330 * s, altV = units.alt(altM), apx = th / (S.units === 'metric' ? 300 : 900);
+    const ax = W / 2 + tOff, altV = units.alt(altM), apx = th / (S.units === 'metric' ? 300 : 900);
     panelBG(c, ax, ty - th / 2, tw, th, 8 * s);
     c.save(); c.beginPath(); c.rect(ax, ty - th / 2, tw, th); c.clip();
     c.strokeStyle = HUDC; c.fillStyle = HUDC; c.font = F(13); c.textAlign = 'left';
@@ -2531,7 +2641,7 @@ function drawHUD(dt) {
     }
     // bottom-left: systems (the cockpit dashboard shows these itself)
     const lx = 18 * s, ly = H - 168 * s;
-    if (view !== 'Cockpit') {
+    if (view !== 'Cockpit' && !touch) {
     panelBG(c, lx, ly, 232 * s, 150 * s, 10 * s);
     c.textAlign = 'left'; c.font = F(11); c.fillStyle = 'rgba(255,255,255,0.7)';
     c.fillText('THR', lx + 12 * s, ly + 14 * s);
@@ -2551,7 +2661,7 @@ function drawHUD(dt) {
     rows.forEach(([k, v], i) => { const yy = ly + 58 * s + i * 15 * s; c.fillStyle = 'rgba(255,255,255,0.6)'; c.fillText(k, lx + 40 * s, yy); c.fillStyle = k === 'BRAKES' && v === 'ON' ? '#ffcc4d' : '#fff'; c.fillText(v, lx + 98 * s, yy); });
     }
     // input display
-    if (S.showInputs) {
+    if (S.showInputs && !touch) {
       const ix = view === 'Cockpit' ? lx : lx + 248 * s, iy = view === 'Cockpit' ? 100 * s : H - 168 * s, isz = 74 * s;
       panelBG(c, ix, iy, isz + 18 * s, 150 * s, 10 * s);
       c.strokeStyle = 'rgba(255,255,255,0.25)'; c.lineWidth = 1; c.strokeRect(ix + 9 * s, iy + 10 * s, isz, isz);
@@ -2564,7 +2674,8 @@ function drawHUD(dt) {
       c.fillStyle = Pad.connected ? '#7ee08f' : 'rgba(255,255,255,0.45)'; c.fillText(Pad.connected ? '🎮 PAD' : '⌨ KEYS', ix + 9 * s + isz / 2, rby + 34 * s);
     }
     // minimap
-    drawMinimap(c, W - 112 * s, H - 112 * s, 96 * s, s, att.hdg);
+    if (touch) { const R = 66 * s; drawMinimap(c, W - R - 16 * dk, 72 * dk + R, R, s, att.hdg); } // top right, under the buttons
+    else drawMinimap(c, W - 112 * s, H - 112 * s, 96 * s, s, att.hdg);
     // top-left info
     c.textAlign = 'left'; c.font = F(13);
     const tl = [];
@@ -2577,6 +2688,8 @@ function drawHUD(dt) {
     if (na2) tl.push([`${na2.a.code} ${na2.a.name} · ${units.dist(na2.d)}`, 'rgba(160,240,255,0.95)']);
     const hpPct = Math.round(plane.hp / plane.sp.hp * 100);
     tl.push([`Rockets ${plane.rockets}/${plane.sp.rockets}   HP ${hpPct}%   ◆ ${fmtPts(SAVE.points)}`, hpPct < 35 ? '#ff8a6a' : '#ffd27a']);
+    // touch hides the systems panel, so show its essentials here
+    if (touch) tl.push([`THR ${Math.round(plane.throttle * 100)}%   FLAPS ${['UP', '15°', '35°'][Math.round(plane.flapTarget * 2)]}${plane.brake > 0.1 ? '   BRAKES' : ''}`, '#cfefff']);
     panelBG(c, 16 * s, 16 * s, 300 * s, (14 + tl.length * 19) * s, 8 * s);
     tl.forEach(([t, col], i) => { c.fillStyle = col; c.font = F(i === 0 ? 13 : 12, i === 0 ? 700 : 500); c.fillText(t, 28 * s, 30 * s + i * 19 * s); });
   }
@@ -2767,6 +2880,7 @@ function doAction(act) {
     case 'paint': hangarPaint(+arg); break;
     case 'claim': claimDaily(); break;
     case 'mode': setFlightMode(S.flightMode === 'arcade' ? 'natural' : 'arcade'); break;
+    case 'fullscreen': { const el = document.documentElement; try { const p = el.requestFullscreen && el.requestFullscreen(); if (p && p.then) p.then(() => { try { const o = screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape'); if (o && o.catch) o.catch(() => { }); } catch (e) { } updateMenuInfo(); }).catch(() => { }); } catch (e) { } break; }
     case 'controls': pushOverlay('controls'); break;
     case 'settings': pushOverlay('settings'); break;
     case 'help': pushOverlay('help'); break;
@@ -2799,12 +2913,13 @@ function setFlightMode(m) {
 function updateMenuInfo() {
   const arc = S.flightMode === 'arcade';
   document.querySelectorAll('.modeName').forEach(e => e.textContent = arc ? 'Arcade' : 'Natural');
-  document.querySelectorAll('.modeSub').forEach(e => e.textContent = arc ? 'Point and fly: the plane follows your aim. Click to switch to Natural' : 'The real flight model. Click to switch to Arcade (point and fly)');
+  document.querySelectorAll('.modeSub').forEach(e => e.textContent = arc ? 'Point and fly: the plane follows your aim. Select to switch to Natural' : 'The real flight model. Select to switch to Arcade (point and fly)');
   const ts = totalStars();
   $('#menuChips').innerHTML = `<span class="chip pts">◆ <b>${fmtPts(SAVE.points)}</b> points</span><span class="chip">★ <b>${ts} / ${MISSIONS.length * 3}</b></span><span class="chip">✈ <b>${escapeHtml(plane.sp.name)}</b></span>`;
   $('#menuPlaneSub').textContent = `Flying the ${plane.sp.name}. ${SAVE.owned.length} of ${AIRCRAFT_ORDER.length} aircraft owned`;
   const done = MISSIONS.filter(m => SAVE.missions[m.id] && SAVE.missions[m.id].stars).length;
   $('#menuMisSub').textContent = `${done} of ${MISSIONS.length} complete · rings, rockets, landings and combat`;
+  $('#fsBtn').hidden = !(navigator.maxTouchPoints > 0 && document.fullscreenEnabled && !document.fullscreenElement);
   const d = dailyInfo();
   $('#dailyBox').innerHTML = d ? `<div class="daily">🎁 <span><b>Daily reward</b> · day ${d.day} of 7</span><button class="sbtn accent" data-act="claim">Claim +${d.pts}</button></div>` : '';
 }
@@ -3025,6 +3140,7 @@ function buildSettingsUI() {
     <label class="f">Wind <select id="setW"><option value="calm">Calm</option><option value="light">Light breeze, a few bumps</option><option value="breezy">Breezy and gusty</option></select><span></span></label>
     <label class="f">Units <select id="setU"><option value="aviation">Aviation (kt, ft, fpm)</option><option value="metric">Metric (km/h, m, m/s)</option></select><span></span></label>
     <label class="c"><input type="checkbox" id="setI"> Show stick &amp; rudder input on the HUD</label>
+    <label class="f">Touch controls <select id="setTC"><option value="auto">Auto: when you touch the screen</option><option value="on">Always on</option><option value="off">Off</option></select><span></span></label>
     <h3>Sound</h3>
     <label class="f">Volume <input type="range" id="setV" min="0" max="1" step="0.05"><output id="setVO"></output></label>`;
   const q = $('#setQ'); q.value = S.quality; q.onchange = () => { S.quality = q.value; applyQuality(); saveSettings(); };
@@ -3035,6 +3151,7 @@ function buildSettingsUI() {
   const w = $('#setW'); w.value = S.wind; w.onchange = () => { S.wind = w.value; setupWind(); saveSettings(); };
   const u = $('#setU'); u.value = S.units; u.onchange = () => { S.units = u.value; saveSettings(); };
   const i = $('#setI'); i.checked = S.showInputs; i.onchange = () => { S.showInputs = i.checked; saveSettings(); };
+  const tc = $('#setTC'); tc.value = S.touch; tc.onchange = () => { S.touch = tc.value; saveSettings(); };
   const v = $('#setV'); v.value = S.volume; $('#setVO').textContent = Math.round(S.volume * 100) + '%'; v.oninput = () => { S.volume = +v.value; $('#setVO').textContent = Math.round(S.volume * 100) + '%'; sfx.setVolume(S.volume); };
 }
 function applyQuality() {
@@ -3052,6 +3169,7 @@ function applyQuality() {
 /* keyboard */
 window.addEventListener('keydown', e => {
   keys.add(e.code);
+  Touch.use(false);
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown'].includes(e.code)) e.preventDefault();
   if (e.code !== 'Escape') { sfx.init(); setTimeout(updateSoundHint, 100); }
   navUsingPad = false;
@@ -3250,7 +3368,7 @@ const Weapons = {
   },
   shell(p, v, fuse) { const s = new THREE.Sprite(shellMat); s.scale.setScalar(2.2); s.position.copy(p); scene.add(s); this.shells.push({ s, p: p.clone(), v: v.clone(), t: 0, fuse }); },
   update(dt) {
-    const want = G.state === 'flying' && !plane.crashed && (key('KeyX') || key('Enter') || Pad.down(S.buttons.fire) || mouseAim.fire);
+    const want = G.state === 'flying' && !plane.crashed && (key('KeyX') || key('Enter') || Pad.down(S.buttons.fire) || mouseAim.fire || Touch.fire);
     this.cd -= dt;
     if (want && this.cd <= 0) {
       if (G.ms && G.ms.type === 'drop') { dropCrate(); this.cd = 1.0; }
@@ -3987,6 +4105,10 @@ function frame(now) {
 }
 function tick(dt) {
   G.time += dt; fpsAcc += dt; fpsN++; if (fpsAcc > 0.5) { G.fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0; }
+  // phones held upright: pause once and suggest turning sideways (resuming upright is allowed)
+  const portrait = innerHeight > innerWidth * 1.05;
+  if (!portrait) G.portraitAsked = false;
+  else if (Touch.shown && G.state === 'flying' && !G.portraitAsked) { G.portraitAsked = true; pauseGame(); $('#pauseInfo').textContent = 'Turn your phone sideways (landscape) to fly, then tap Resume.'; }
   Pad.poll();
   if (G.state === 'loading') { Pad.endFrame(); return; }
   updateDetect();
@@ -4052,6 +4174,7 @@ function tick(dt) {
   drawHUD(dt);
   if (VIEWS[G.view] === 'Cockpit' && vis.panelCanvas && G.state !== 'menu') { panelT += dt; if (panelT > 0.05) { panelT = 0; drawPanel(); } }
   updateControlsLive();
+  Touch.update();
   Pad.endFrame();
 }
 const _wq = new Q4();
@@ -4131,6 +4254,8 @@ async function boot() {
   $('#loading').classList.remove('show');
   showOverlay('menu');
   updatePadChip(); updateSoundHint();
+  Touch.init();
+  if (matchMedia('(pointer:coarse)').matches) $('#soundHint').textContent = '🔇 Tap anywhere to enable sound';
   requestAnimationFrame(frame);
 }
 onResize();
