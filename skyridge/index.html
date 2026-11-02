@@ -1855,33 +1855,43 @@ class Particles {
    ===================================================================== */
 class RingCourse {
   constructor() { this.group = new THREE.Group(); this.group.visible = false; scene.add(this.group); this.list = []; this.active = false; this.idx = 0; this.t = 0; }
-  // Course picked through the terrain toward a goal. o: { seed, count, clear, rand, R, goal, spread, startAgl, lowBias }
-  build(o = {}) {
-    const A = AIRPORTS[0], rng = mulberry32(o.seed || 777), n = o.count || 16, clear = o.clear ?? 55, rnd = o.rand ?? 35, goal = o.goal || MOUNTAIN_GOAL, spread = o.spread || 13;
-    let x = A.x + A.dx * (A.len / 2 + 1300), z = A.z + A.dz * (A.len / 2 + 1300);
-    let hdg = A.hd, y = Math.max(heightAt(x, z), 0) + (o.startAgl || 170);
-    const start = { x, y, z, hdg };
-    const goalHdg = (px, pz) => wrap360(Math.atan2(goal.x - px, -(goal.z - pz)) * RAD);
-    const pts = [];
+  // Plan a course through the terrain: several routes are explored side by side (a beam search) and only
+  // legs the SR-1 can fly are kept: ring sites with room around them, a straight line to the next ring that
+  // clears the ground, and climbs it can hold. o: { start: {x,z,agl}, via: [{x,z}...] (relative to the home
+  // field), seed, count, R, clear, legClr, rand, spread, siteR, wingM, low, step, viaR }
+  build(o) {
+    const A = AIRPORTS[0], H = (x, z) => Math.max(heightAt(x, z), WATER), n = o.count, R = o.R, clear = o.clear, legClr = o.legClr ?? clear * 0.6, seed = o.seed, spread = o.spread || 13, siteR = o.siteR || 90, low = o.low || 0.25, wing = R + (o.wingM ?? 24);
+    const MAX_UP = 0.12, MAX_DOWN = 0.15, BEAM = 16, via = o.via.map(v => ({ x: A.x + v.x, z: A.z + v.z }));
+    const x0 = A.x + o.start.x, z0 = A.z + o.start.z, y0 = H(x0, z0) + o.start.agl, hd0 = wrap360(Math.atan2(via[0].x - x0, -(via[0].z - z0)) * RAD);
+    let beam = [{ x: x0, z: z0, y: y0, hdg: hd0, wi: 0, cost: 0, pts: [] }];
     for (let i = 0; i < n; i++) {
-      let best = null;
-      for (let k = -3; k <= 3; k++) {
-        const h = hdg + k * spread, dist = (o.step || 800) + rng() * 250, s = Math.sin(h * DEG), c = -Math.cos(h * DEG);
-        let tmax = 0;
-        for (let j = 1; j <= 10; j++) { const f = j / 10; tmax = Math.max(tmax, heightAt(x + s * dist * f, z + c * dist * f)); }
-        for (const off of [-40, 40]) tmax = Math.max(tmax, heightAt(x + s * dist + c * off, z + c * dist - s * off));
-        const gd = Math.abs(wrap180(h - goalHdg(x, z)));
-        const score = tmax * (o.lowBias || 1) + Math.abs(k) * 18 + gd * (i < n * 0.7 ? 2.2 : 0.4);
-        if (!best || score < best.score) best = { score, h, dist, s, c, tmax };
+      let next = [];
+      // climbs are only allowed past the limit if there is truly no other way on
+      for (let up = MAX_UP; !next.length && up < 0.4; up += 0.06) for (const b of beam) for (let k = -3; k <= 3; k++) {
+        const h = b.hdg + k * spread, dist = (o.step || 800) + hash2(seed + i * 31, k + 5) * 250, s = Math.sin(h * DEG), c = -Math.cos(h * DEG), nx = b.x + s * dist, nz = b.z + c * dist;
+        // the ring sits above the highest ground close around it
+        let site = H(nx, nz);
+        for (let a = 0; a < 8; a++) { const ca = Math.cos(a * Math.PI / 4), sa = Math.sin(a * Math.PI / 4); site = Math.max(site, H(nx + ca * siteR / 2, nz + sa * siteR / 2), H(nx + ca * siteR, nz + sa * siteR)); }
+        let ny = site + clear + hash2(seed + i * 17, k + 11) * (o.rand || 0);
+        // and high enough that the straight leg to it clears the ground, a wingspan or so either side
+        for (let j = 1; j <= 10; j++) { const f = j / 10, px = b.x + s * dist * f, pz = b.z + c * dist * f; ny = Math.max(ny, b.y + (Math.max(H(px, pz), H(px + c * wing, pz - s * wing), H(px - c * wing, pz + s * wing)) + legClr - b.y) / f); }
+        const slope = (ny - b.y) / dist;
+        if (slope > up) continue;
+        if (slope < -MAX_DOWN) ny = b.y - MAX_DOWN * dist;
+        const v = via[Math.min(b.wi, via.length - 1)], gd = Math.abs(wrap180(h - Math.atan2(v.x - b.x, -(v.z - b.z)) * RAD));
+        // prefer low routes near the ground that head for the next waypoint without sharp turns or steep climbs
+        let cost = b.cost + site * low + (ny - site - clear) * 0.6 + Math.abs(k) * 18 + gd * 2.2 + Math.max(0, slope) * 300;
+        for (const p of b.pts) if (Math.hypot(p.x - nx, p.z - nz) < 500) cost += 2000; // don't cross back over the course
+        for (const ap of AIRPORTS) if (Math.hypot(ap.x - nx, ap.z - nz) < ap.len / 2 + 700) cost += 1500; // nor over airfields
+        next.push({ x: nx, z: nz, y: ny, hdg: h, wi: b.wi + (Math.hypot(v.x - nx, v.z - nz) < (o.viaR || 800) && b.wi < via.length - 1 ? 1 : 0), cost, pts: b.pts.concat(new V3(nx, ny, nz)) });
       }
-      const nx = x + best.s * best.dist, nz = z + best.c * best.dist;
-      let ny = clamp(best.tmax + clear + rng() * rnd, y - best.dist * 0.15, y + best.dist * 0.15);
-      if (ny < best.tmax + clear * 0.76) ny = best.tmax + clear * 0.76;
-      ny = Math.max(ny, WATER + clear * 0.6);
-      pts.push(new V3(nx, ny, nz));
-      x = nx; y = ny; z = nz; hdg = best.h;
+      if (!next.length) break;
+      // keep the cheapest routes, at most one per 200 m square so they stay different from each other
+      next.sort((p, q) => p.cost - q.cost);
+      const seen = new Set(); beam = [];
+      for (const c of next) { const key = Math.round(c.x / 200) + ',' + Math.round(c.z / 200); if (seen.has(key)) continue; seen.add(key); beam.push(c); if (beam.length >= BEAM) break; }
     }
-    this.make(pts, start, null, o.R || 16);
+    this.make(beam[0].pts, { x: x0, y: y0, z: z0, hdg: hd0 }, null, R);
   }
   // Build ring meshes for a list of points. start = {x,y,z,hdg}; end (optional) sets the last ring's facing.
   make(pts, start, end, R = 16) {
@@ -1920,7 +1930,7 @@ class RingCourse {
     const r = this.list[this.idx]; if (!r) return null;
     const pulse = 1 + Math.sin(performance.now() * 0.006) * 0.04; r.mesh.scale.setScalar(pulse);
     const d0 = _tv.subVectors(p0, r.pos).dot(r.dir), d1 = _v.subVectors(p1, r.pos).dot(r.dir);
-    if (d0 < 0 && d1 >= 0) {
+    if ((d0 < 0) !== (d1 < 0)) { // either direction counts
       const t = d0 / (d0 - d1); _p.lerpVectors(p0, p1, t);
       if (_p.distanceTo(r.pos) < r.R - 0.6) { this.idx++; this.refresh(); if (this.idx >= this.list.length) { this.finished = true; return 'finish'; } return 'pass'; }
     }
@@ -2137,7 +2147,7 @@ function pollControls(dt) {
    ===================================================================== */
 const aim = { yaw: 0, pitch: 0, dir: new V3(0, 0, -1) };
 const mouseAim = { dx: 0, dy: 0, fire: false };
-const _ap = new V3(), _ap2 = new V3(), _apq = new Q4();
+const _ap = new V3(), _ap2 = new V3(), _ap3 = new V3();
 function setAimDir() { const cp = Math.cos(aim.pitch); aim.dir.set(Math.sin(aim.yaw) * cp, Math.sin(aim.pitch), -Math.cos(aim.yaw) * cp); }
 function aimFromPlane() {
   const n = _ap.copy(FWD).applyQuaternion(plane.q);
@@ -2150,26 +2160,39 @@ function arcadePilot(dt) {
   aim.pitch += ctl.pitch * 0.9 * dt - mouseAim.dy * ms;
   mouseAim.dx = mouseAim.dy = 0;
   aim.yaw = wrapPi(aim.yaw); aim.pitch = clamp(aim.pitch, -1.3, 1.3); setAimDir();
-  // where is the aim in the aircraft's own axes?
-  _apq.copy(plane.q).invert();
-  const tb = _ap.copy(aim.dir).applyQuaternion(_apq);
-  // steer the flight path, not just the nose: add the angle of attack / sideslip offset
-  if (!plane.wheelsDown && plane.vel.lengthSq() > 400) { const vb = _ap2.copy(plane.vel).normalize().applyQuaternion(_apq); tb.x -= vb.x; tb.y -= vb.y; tb.normalize(); }
-  const off = Math.acos(clamp(-tb.z, -1, 1)), w = plane.w;
-  const rightW = _ap2.copy(RIGHTV).applyQuaternion(plane.q);
-  let pitch = clamp(tb.y * 5 - w.x * 0.45, -1, 1);
-  let yaw = clamp(tb.x * 3 + w.y * 0.6, -1, 1);
-  // small offsets: a gentle bank toward the aim; big ones: bank hard toward it
-  let roll = lerp(clamp((rightW.y + tb.x * 1.5) * 3, -1, 1), clamp(tb.x * 5, -1, 1), smoothstep(0, 10 * DEG, off)) + w.z * 0.35;
+  // Fly-by-wire: heading is steered with a limited bank angle, climb angle with the elevator.
+  // Controls bite harder the faster you go, so the gains shrink with airspeed (or the plane porpoises).
+  const w = plane.w, V = Math.max(plane.ias, 20), vRef = plane.sp.kt.vs1 / KT * 1.8, km = plane.km;
+  const qk = clamp((vRef / V) * (vRef / V), 0.08, 1) * 1.3 / km[1], rk = clamp(vRef / V, 0.25, 1);
+  const rightW = _ap.copy(RIGHTV).applyQuaternion(plane.q), upW = _ap2.copy(UPV).applyQuaternion(plane.q);
+  const bank = -Math.atan2(rightW.y, upW.y), speed = plane.vel.length();
+  const nose = _ap3.copy(FWD).applyQuaternion(plane.q), noseH = Math.atan2(nose.x, -nose.z);
+  const pathH = speed > 5 ? Math.atan2(plane.vel.x, -plane.vel.z) : noseH, pathA = speed > 5 ? Math.asin(clamp(plane.vel.y / speed, -1, 1)) : 0;
+  const he = wrapPi(aim.yaw - pathH), ee = aim.pitch - pathA;
+  // bank for a turn rate proportional to the heading error, then roll toward that bank (roll right is -w.z)
+  const wantBank = clamp(Math.atan(he * 0.8 * V / 9.81), -75 * DEG, 75 * DEG);
+  const wantRoll = clamp(wrapPi(wantBank - bank) * 2.5, -1.8, 1.8);
+  let roll = (wantRoll + w.z) * 1.2 / km[0] * rk;
+  // pitch rate for the climb angle plus what the bank needs to hold the turn level, limited to about 5 G up and 2 G down
+  const cb = Math.cos(bank), turnRate = (9.81 / V) * Math.sin(bank) * Math.tan(clamp(bank, -80 * DEG, 80 * DEG));
+  const wantPitch = clamp(ee * 1.5 * Math.max(cb, 0.2) + turnRate, -2 * 9.81 / V, 5 * 9.81 / V);
+  let pitch = (wantPitch - w.x) * 4 * qk;
+  // rudder keeps the turn coordinated and takes out the last of the heading error
+  let yaw = clamp(plane.beta * 2.2 + roll * 0.18 + clamp(he * 2, -0.25, 0.25) + w.y * 0.3, -1, 1) * rk;
   if (plane.wheelsDown) {
-    roll = clamp(rightW.y * 3, -1, 1); yaw = clamp(tb.x * 6, -1, 1);
+    // on the ground: wings level, steer the nosewheel along the aim
+    const noseErr = wrapPi(aim.yaw - noseH);
+    roll = clamp(rightW.y * 3, -1, 1); yaw = clamp(noseErr * 6, -1, 1);
     if (plane.ias < plane.sp.kt.vr / KT * 0.85) pitch = Math.min(pitch, 0.15);
   } else {
     // keep clear of the stall and of too many G
     const m = plane.stallMargin;
     if (pitch > 0 && m < 8 * DEG) pitch *= clamp((m - 3.5 * DEG) / (4.5 * DEG), -0.3, 1);
-    if (plane.G > 5.5) pitch -= (plane.G - 5.5) * 0.8;
-    if (plane.G < -1) pitch += (-1 - plane.G) * 0.6;
+    if (plane.G > 5.5) pitch -= (plane.G - 5.5) * 0.5 * qk;
+    if (plane.G < -1.5) pitch += (-1.5 - plane.G) * 0.5 * qk;
+    // the trim wheel closes the gap at any speed (not while the limits above are holding the nose back)
+    const held = (wantPitch > w.x) && (m < 8 * DEG || plane.G > 5.5);
+    if (!held && Math.abs(pitch) < 0.8) plane.trim = clamp(plane.trim + (wantPitch - w.x) * 2.5 * qk * dt, -0.6, 0.6);
   }
   ctl.roll = clamp(roll, -1, 1); ctl.pitch = clamp(pitch, -1, 1); ctl.yaw = clamp(yaw, -1, 1);
 }
@@ -2334,6 +2357,7 @@ function spawn(mode, keepLanding = false, opt = null) {
     G.wasAir = true; plane.airTime = 5;
   }
   G.spawn = mode;
+  terrain.update(plane.pos.x, plane.pos.z, 200); // missions can start far from where we were: get the nearby ground in place first
   aimFromPlane();
   camRig.reset();
   showOverlay(null);
@@ -3343,7 +3367,7 @@ function lineOfSight(a, b) {
   return true;
 }
 const Weapons = {
-  rockets: [], shells: [], flashes: [], crates: [], side: 1, cd: 0, lockTarget: null, lockT: 0, locked: false, emptyT: -99,
+  rockets: [], shells: [], flashes: [], crates: [], side: 1, cd: 0, lockTarget: null, lockT: 0, locked: false, emptyT: -99, fireBlock: true,
   clear() {
     for (const r of this.rockets) scene.remove(r.m);
     for (const s of this.shells) scene.remove(s.s);
@@ -3368,7 +3392,10 @@ const Weapons = {
   },
   shell(p, v, fuse) { const s = new THREE.Sprite(shellMat); s.scale.setScalar(2.2); s.position.copy(p); scene.add(s); this.shells.push({ s, p: p.clone(), v: v.clone(), t: 0, fuse }); },
   update(dt) {
-    const want = G.state === 'flying' && !plane.crashed && (key('KeyX') || key('Enter') || Pad.down(S.buttons.fire) || mouseAim.fire || Touch.fire);
+    // a button that just closed a menu (○ is also menu back, Enter also selects) must be let go before it can fire
+    const held = key('KeyX') || key('Enter') || Pad.down(S.buttons.fire) || mouseAim.fire || Touch.fire;
+    if (!held) this.fireBlock = false;
+    const want = held && !this.fireBlock && G.state === 'flying' && !plane.crashed;
     this.cd -= dt;
     if (want && this.cd <= 0) {
       if (G.ms && G.ms.type === 'drop') { dropCrate(); this.cd = 1.0; }
@@ -3707,12 +3734,12 @@ function setupFreeFlight() { clearEnts(); BEACONS.forEach((b, i) => { if (!SAVE.
    ===================================================================== */
 const MISSIONS = [
   { id: 'solo', ic: '🎓', name: 'First Solo', type: 'solo', need: 0, reward: 150, par: [200, 290], goal: 'take off, fly the 4 pattern rings and land', desc: 'Take off from SkyRidge, fly the four traffic-pattern rings and land back on the runway.' },
-  { id: 'rings', ic: '⭕', name: 'Valley Rings', type: 'rings', course: 'valley', need: 0, reward: 250, goal: 'fly through every ring', desc: '16 rings through the valleys toward the high peaks. Beat the clock.' },
+  { id: 'rings', ic: '⭕', name: 'Valley Rings', type: 'rings', course: 'valley', need: 0, reward: 250, goal: 'fly through every ring', desc: '16 rings down the fjord, past the high peak and west along the valley under the mountains. Beat the clock.' },
   { id: 'balloons', ic: '🎈', name: 'Balloon Pop', type: 'balloons', need: 0, reward: 300, par: [210, 330], goal: 'pop all 12 balloons', desc: '12 target balloons drift over the hills. Rockets or the propeller, your call.' },
   { id: 'landing', ic: '🛬', name: 'Precision Landing', type: 'landing', need: 2, reward: 250, goal: 'touch down softly at the aim point', desc: 'Start on final to a random airfield. Touch down softly, on the centerline, at the aim point.' },
   { id: 'range', ic: '🎯', name: 'Target Range', type: 'range', need: 3, reward: 350, par: [130, 220], goal: 'destroy the 6 ground targets', desc: 'Trucks and bullseyes on the valley range. Dive, lock on, fire. One good rocket can take out a pair.' },
   { id: 'drop', ic: '📦', name: 'Supply Drop', type: 'drop', need: 5, reward: 400, par: [210, 320], goal: 'land a crate in each of the 3 smoke zones', desc: 'Drop parachute crates into three smoke-marked zones. Fire releases a crate; the green circle shows where it will land.' },
-  { id: 'canyon', ic: '🏞️', name: 'Canyon Run', type: 'rings', course: 'canyon', need: 7, reward: 450, goal: 'stay low and thread every ring', desc: 'Low and fast: 14 tight rings snaking along the valley floors.' },
+  { id: 'canyon', ic: '🏞️', name: 'Canyon Run', type: 'rings', course: 'canyon', need: 7, reward: 450, goal: 'stay low and thread every ring', desc: 'Low and fast: 14 tight rings along a winding river, finishing inside a narrow canyon. Watch your speed!' },
   { id: 'drones', ic: '🛸', name: 'Drone Hunt', type: 'drones', need: 9, reward: 500, par: [170, 280], goal: 'shoot down all 6 drones', desc: 'Six target drones circle the peaks. Hold your aim on one to lock, then fire.' },
   { id: 'hop', ic: '🗺️', name: 'Airfield Hop', type: 'hop', need: 12, reward: 500, par: [420, 620], goal: 'touch down at Pine Hollow, then Eagle Peak', desc: 'Touch down at Pine Hollow, then at Eagle Peak high in the mountains. Touch-and-go is fine.' },
   { id: 'flak', ic: '💥', name: 'Flak Valley', type: 'flak', need: 15, reward: 650, par: [210, 330], goal: 'destroy the 5 flak guns', desc: 'Five flak guns guard the ridges and they shoot back. Rearm and repair at any airfield.' },
@@ -3755,6 +3782,11 @@ function timeResult(ms, par, extra = []) {
   if (ms.penalty) lines.push(['Penalties', '+' + Math.round(ms.penalty) + ' s']);
   return { stars, time: t, main: `<div class="big" style="color:var(--accent)">${fmtTime(t)}</div>`, lines };
 }
+// Ring courses, placed by hand through the valleys (waypoints are meters from the home field)
+const COURSES = {
+  valley: { seed: 777, count: 16, R: 16, clear: 55, rand: 35, start: { x: 200, z: -1300, agl: 170 }, via: [{ x: -3400, z: -2100 }, { x: -5600, z: -4900 }, { x: -9300, z: -4900 }, { x: -13000, z: -4500 }] },
+  canyon: { seed: 9091, count: 14, R: 13, clear: 40, rand: 10, spread: 14, low: 0.45, siteR: 45, wingM: 6, step: 470, viaR: 420, start: { x: -8600, z: 149, agl: 100 }, via: [{ x: -9275, z: 617 }, { x: -10073, z: 817 }, { x: -10872, z: 1786 }, { x: -11674, z: 2188 }, { x: -12556, z: 1703 }, { x: -13515, z: 977 }, { x: -14190, z: 510 }, { x: -14734, z: 665 }, { x: -15125, z: 882 }, { x: -15860, z: 1200 }, { x: -16283, z: 1228 }] },
+};
 const MT = {
   solo: {
     setup(ms) {
@@ -3781,10 +3813,7 @@ const MT = {
   },
   rings: {
     setup(ms) {
-      if (ms.mis.course === 'canyon') {
-        const A = AIRPORTS[0], g = MOUNTAIN_GOAL, gx = g.x - A.x, gz = g.z - A.z;
-        rings.build({ seed: 9091, count: 14, clear: 30, rand: 14, R: 13, lowBias: 1.8, spread: 16, startAgl: 110, goal: { x: A.x + gz * 0.9 - gx * 0.3, z: A.z - gx * 0.9 - gz * 0.3 } });
-      } else rings.build();
+      rings.build(COURSES[ms.mis.course]);
       spawn('rings');
       ms.par = [rings.len / 56, rings.len / 42];
     },
@@ -3962,7 +3991,7 @@ function finishMission(res) {
     `<div class="stat"><span>Your points</span><b>◆ ${fmtPts(SAVE.points)}</b></div>`;
   $('#resultBtns').innerHTML = `<button class="btn primary" data-act="restart">${ok ? 'Fly it again' : 'Try again'}</button>` +
     (next ? `<button class="btn" data-act="next:${mis.id}"${nextOk ? '' : ' disabled'}>Next: ${next.ic} ${next.name}${nextOk ? '' : `<small>Needs ${next.need} ★ in total</small>`}</button>` : '') +
-    '<button class="btn" data-act="continue">Keep flying here</button><button class="btn" data-act="mainmenu">Main menu</button>';
+    (mis.course === 'canyon' ? '' : '<button class="btn" data-act="continue">Keep flying here</button>') + '<button class="btn" data-act="mainmenu">Main menu</button>'; // the canyon course ends facing a wall
   if (ok) sfx.fanfare();
   G.state = 'paused'; showOverlay('result');
 }
@@ -4112,6 +4141,7 @@ function tick(dt) {
   Pad.poll();
   if (G.state === 'loading') { Pad.endFrame(); return; }
   updateDetect();
+  if (topOverlay() || G.state !== 'flying') Weapons.fireBlock = true;
   if (topOverlay()) padMenuNav(dt);
   else if (G.state === 'flying') padFlightButtons();
   else if (G.state === 'crashed' && Pad.connected && (Pad.pressed(S.buttons.ok))) restartFlight();
@@ -4239,7 +4269,7 @@ async function boot() {
   applyQuality();
   terrain = new Terrain();
   particles = new Particles();
-  rings = new RingCourse(); rings.build();
+  rings = new RingCourse();
   placeBeacons();
   setAircraft(SAVE.plane);
   placeParked();
@@ -4264,7 +4294,7 @@ boot().catch(err => { console.error(err); $('#loadText').textContent = 'Somethin
 // Debug hooks for testing in the console
 window.SKY = {
   plane, AIRPORTS, heightAt, groundHeight, terrainRaw, G, S, ctl, env, spawn, camera, renderer, scene, WORLD, VIEWS,
-  SAVE, AIRCRAFT, setAircraft, aircraftStats, arcadePilot, tick(n = 1, dt = 1 / 60, render = false) { G.skipRender = !render; try { for (let i = 0; i < n; i++) tick(dt); } finally { G.skipRender = false; } }, startMission, finishMission, MISSIONS, MT, ENTS, Weapons, aim, setFlightMode, BEACONS, get vis() { return vis; },
+  SAVE, AIRCRAFT, COURSES, setAircraft, aircraftStats, arcadePilot, tick(n = 1, dt = 1 / 60, render = false) { G.skipRender = !render; try { for (let i = 0; i < n; i++) tick(dt); } finally { G.skipRender = false; } }, startMission, finishMission, MISSIONS, MT, ENTS, Weapons, aim, setFlightMode, BEACONS, get vis() { return vis; },
   get terrain() { return terrain; }, get rings() { return rings; }, MOUNTAIN_GOAL: () => MOUNTAIN_GOAL,
   Pad, startDetect, updateDetect, get detect() { return detect; }, sfx,
   // Run the flight model headless: c = {roll,pitch,yaw,throttle,brake}, returns samples every `every` seconds.
