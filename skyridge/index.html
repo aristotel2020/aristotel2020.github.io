@@ -101,6 +101,9 @@ select.focus,select:focus-visible{outline:2px solid var(--accent)}
 .mcard b{font-size:16px}
 .mcard p{margin:0;color:var(--muted);font-size:12.5px}
 .mcard small{color:var(--dim);font-size:12px}
+.mcard small .stars{font-size:12px;letter-spacing:1px}
+#levels .panel{width:min(620px,100%)}
+#levels .mgrid{grid-template-columns:1fr;margin-top:10px}
 .stars{color:#ffd23a;letter-spacing:2px;font-size:16px;white-space:nowrap}
 .stars i,.bigstars i{color:rgba(255,255,255,.18);font-style:normal}
 .bigstars{font-size:46px;text-align:center;letter-spacing:8px;color:#ffd23a;margin:2px 0}
@@ -214,6 +217,13 @@ body.touchmode #soundHint{right:auto;left:50%;transform:translateX(-50%);top:64p
   </div>
 </div>
 
+<div id="levels" class="overlay dim">
+  <div class="panel wide">
+    <div class="head"><h2 id="levelsTitle">Mission</h2><button class="sbtn" data-act="back">Back</button></div>
+    <div id="levelsBody"></div>
+  </div>
+</div>
+
 <div id="hangar" class="overlay dim">
   <div class="panel wide">
     <div class="head"><h2>Hangar</h2><button class="sbtn" data-act="back">Back</button></div>
@@ -283,7 +293,7 @@ body.touchmode #soundHint{right:auto;left:50%;transform:translateX(-50%);top:64p
         <table class="help">
           <tr><td>Left pad</td><td>Slide up / down for throttle (it stays where you leave it), left / right for rudder</td></tr>
           <tr><td>Right pad</td><td>The flight stick: drag down = nose up. In Arcade it moves the aim circle (dragging the view works too)</td></tr>
-          <tr><td>Buttons</td><td>FIRE, BRAKE, flaps ▲▼, TRIM (auto-trim), CAM, NAT / ARC mode and II (pause)</td></tr>
+          <tr><td>Buttons</td><td>FIRE (DROP in Supply Drop), BRAKE, flaps ▲▼, TRIM (auto-trim), CAM, NAT / ARC mode and II (pause)</td></tr>
           <tr><td>Tips</td><td>Hold the phone sideways. Arcade mode is the easiest way to fly with thumbs. Natural mode: drag the view to look around</td></tr>
         </table>
         <h3>Keyboard &amp; mouse</h3>
@@ -291,7 +301,7 @@ body.touchmode #soundHint{right:auto;left:50%;transform:translateX(-50%);top:64p
           <tr><td><span class="kbd">↑ ↓ ← →</span></td><td>Stick (↑ = nose down). Arcade: move the aim</td></tr>
           <tr><td><span class="kbd">A</span> <span class="kbd">D</span></td><td>Rudder</td></tr>
           <tr><td><span class="kbd">W</span> <span class="kbd">S</span></td><td>Throttle</td></tr>
-          <tr><td><span class="kbd">X</span> <span class="kbd">Enter</span></td><td>Fire rockets (hold). Arcade: left mouse button too</td></tr>
+          <tr><td><span class="kbd">X</span> <span class="kbd">Enter</span></td><td>Fire rockets (hold). In Supply Drop it releases a crate. Arcade: left mouse button too</td></tr>
           <tr><td><span class="kbd">Tab</span></td><td>Switch Natural ⇄ Arcade flight mode</td></tr>
           <tr><td><span class="kbd">Space</span></td><td>Brakes</td></tr>
           <tr><td><span class="kbd">F</span> <span class="kbd">V</span></td><td>Flaps down / up</td></tr>
@@ -309,6 +319,7 @@ body.touchmode #soundHint{right:auto;left:50%;transform:translateX(-50%);top:64p
         <h3>Missions, points &amp; rockets</h3>
         <ul class="tips">
           <li>Missions earn <b>stars</b> (beat the par times) and <b>points</b>. Stars unlock more missions. Spend points in the <b>Hangar</b> on new aircraft and paint.</li>
+          <li><b>Hard and Ace:</b> clear a mission to unlock it on Hard, then clear Hard to unlock Ace. Expect more and tougher targets, smaller rings, stronger wind and tighter clocks, for much bigger rewards.</li>
           <li><b>Rockets:</b> hold the crosshair (or the aim circle) on a target for a moment and it <b>locks</b> (red box). Rockets fired while locked steer themselves onto it.</li>
           <li><b>Rearm &amp; repair:</b> stop on any airfield for two seconds.</li>
           <li><b>Beacons:</b> 20 light beams are hidden across the world in free flight, worth points each.</li>
@@ -480,7 +491,10 @@ const ACH = [
   { id: 'flawless', ic: '🛡️', name: 'Untouchable', desc: 'Finish Flak Valley without taking a hit', pts: 300 },
   { id: 'beacons', ic: '🔦', name: 'Beacon Hunter', desc: 'Find every beacon in free flight', pts: 500 },
   { id: 'hangar', ic: '🏆', name: 'Collector', desc: 'Own every aircraft', pts: 500 },
-  { id: 'allstars', ic: '⭐', name: 'Ace', desc: 'Three stars on every mission', pts: 1000 },
+  { id: 'allstars', ic: '⭐', name: 'Star Pilot', desc: 'Three stars on every mission on Normal', pts: 1000 },
+  { id: 'hardall', ic: '🎖️', name: 'Veteran', desc: 'Clear all 9 missions with levels on Hard. Unlocks Veteran Steel paint', pts: 750 },
+  { id: 'aceall', ic: '👑', name: 'Living Legend', desc: 'Clear all 9 missions with levels on Ace. Unlocks Black and Gold paint', pts: 2000 },
+  { id: 'flakace', ic: '🔥', name: 'Iron Nerves', desc: 'Finish Flak Valley on Ace', pts: 500 },
   { id: 'streak7', ic: '📅', name: 'Dedicated', desc: 'Claim the daily reward 7 days in a row', pts: 300 },
 ];
 function unlock(id) {
@@ -514,6 +528,8 @@ const PAINTS = [
   { name: 'Midnight', body: '#1c2330', accent: '#ffb547', dark: '#0c0f14', price: 900 },
   { name: 'Desert', body: '#c9b48a', accent: '#7a5a32', dark: '#3a2c1a', price: 900 },
   { name: 'Gold Leaf', body: '#d4af37', accent: '#1d1d22', dark: '#3a2a10', price: 1500 },
+  { name: 'Veteran Steel', body: '#59626b', accent: '#e8e8e8', dark: '#1c2126', price: 0, ach: 'hardall' },
+  { name: 'Black and Gold', body: '#15161a', accent: '#e8b923', dark: '#050506', price: 0, ach: 'aceall' },
 ];
 function paintFor(id) { const sp = AIRCRAFT[id], p = PAINTS[SAVE.paint[id] || 0] || PAINTS[0]; return p.body ? { body: p.body, accent: p.accent, dark: p.dark, reg: sp.paint.reg } : sp.paint; }
 if (!AIRCRAFT[SAVE.plane] || !SAVE.owned.includes(SAVE.plane)) SAVE.plane = 'sr1';
@@ -1775,11 +1791,13 @@ let clouds = null;
 /* =====================================================================
    Particles (smoke trail, tire smoke, explosion)
    ===================================================================== */
+const HOLD_AGE = 1;
 class Particles {
   constructor(max = 5000) {
     this.max = max; this.n = 0;
     this.pos = new Float32Array(max * 3); this.col = new Float32Array(max * 3); this.size = new Float32Array(max); this.alpha = new Float32Array(max);
-    this.vel = new Float32Array(max * 3); this.age = new Float32Array(max); this.life = new Float32Array(max); this.s0 = new Float32Array(max); this.grow = new Float32Array(max); this.a0 = new Float32Array(max); this.drag = new Float32Array(max); this.lift = new Float32Array(max);
+    this.vel = new Float32Array(max * 3); this.age = new Float32Array(max); this.life = new Float32Array(max); this.s0 = new Float32Array(max); this.grow = new Float32Array(max); this.a0 = new Float32Array(max); this.drag = new Float32Array(max); this.lift = new Float32Array(max); this.own = new Int32Array(max);
+    this.held = new Set(); // owners whose particles (emitted with `owner`) stop aging at HOLD_AGE until the owner is deleted from this set
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute('aColor', new THREE.BufferAttribute(this.col, 3).setUsage(THREE.DynamicDrawUsage));
@@ -1818,17 +1836,17 @@ class Particles {
     this.points = new THREE.Points(g, this.mat); this.points.frustumCulled = false; this.points.renderOrder = 6;
     scene.add(this.points);
   }
-  emit(x, y, z, vx, vy, vz, life, size, grow, r, g, b, alpha, drag = 0.4, lift = 0) {
+  emit(x, y, z, vx, vy, vz, life, size, grow, r, g, b, alpha, drag = 0.4, lift = 0, owner = 0) {
     if (this.n >= this.max) return;
     const i = this.n++, i3 = i * 3;
     this.pos[i3] = x; this.pos[i3 + 1] = y; this.pos[i3 + 2] = z; this.vel[i3] = vx; this.vel[i3 + 1] = vy; this.vel[i3 + 2] = vz;
     this.col[i3] = r; this.col[i3 + 1] = g; this.col[i3 + 2] = b;
-    this.age[i] = 0; this.life[i] = life; this.s0[i] = size; this.grow[i] = grow; this.a0[i] = alpha; this.drag[i] = drag; this.lift[i] = lift; this.size[i] = size; this.alpha[i] = alpha;
+    this.age[i] = 0; this.life[i] = life; this.s0[i] = size; this.grow[i] = grow; this.a0[i] = alpha; this.drag[i] = drag; this.lift[i] = lift; this.size[i] = size; this.alpha[i] = alpha; this.own[i] = owner;
   }
   update(dt) {
     let i = 0;
     while (i < this.n) {
-      this.age[i] += dt;
+      if (this.age[i] < HOLD_AGE || !this.own[i] || !this.held.has(this.own[i])) this.age[i] += dt;
       if (this.age[i] >= this.life[i]) { this.copy(this.n - 1, i); this.n--; continue; }
       const i3 = i * 3, k = Math.exp(-this.drag[i] * dt);
       this.vel[i3] *= k; this.vel[i3 + 1] = this.vel[i3 + 1] * k + this.lift[i] * dt; this.vel[i3 + 2] *= k;
@@ -1836,6 +1854,7 @@ class Particles {
       const t = this.age[i] / this.life[i];
       this.size[i] = this.s0[i] + this.grow[i] * this.age[i];
       this.alpha[i] = this.a0[i] * Math.min(1, t * 12) * Math.pow(1 - t, 1.4);
+      if (this.own[i]) { const cx = this.pos[i3] - camera.position.x, cy = this.pos[i3 + 1] - camera.position.y, cz = this.pos[i3 + 2] - camera.position.z, d2 = cx * cx + cy * cy + cz * cz; if (d2 < 3600) this.alpha[i] *= Math.sqrt(d2) / 60; } // flying along a rocket's trail shouldn't fog up the view
       i++;
     }
     this.geo.setDrawRange(0, this.n);
@@ -1845,7 +1864,7 @@ class Particles {
     if (from === to) return;
     const f3 = from * 3, t3 = to * 3;
     for (let c = 0; c < 3; c++) { this.pos[t3 + c] = this.pos[f3 + c]; this.vel[t3 + c] = this.vel[f3 + c]; this.col[t3 + c] = this.col[f3 + c]; }
-    for (const a of [this.age, this.life, this.s0, this.grow, this.a0, this.drag, this.lift, this.size, this.alpha]) a[to] = a[from];
+    for (const a of [this.age, this.life, this.s0, this.grow, this.a0, this.drag, this.lift, this.size, this.alpha, this.own]) a[to] = a[from];
   }
   clear() { this.n = 0; this.geo.setDrawRange(0, 0); }
 }
@@ -1858,7 +1877,7 @@ class RingCourse {
   // Plan a course through the terrain: several routes are explored side by side (a beam search) and only
   // legs the SR-1 can fly are kept: ring sites with room around them, a straight line to the next ring that
   // clears the ground, and climbs it can hold. o: { start: {x,z,agl}, via: [{x,z}...] (relative to the home
-  // field), seed, count, R, clear, legClr, rand, spread, siteR, wingM, low, step, viaR }
+  // field), seed, count, R, clear, legClr, rand, spread, siteR, wingM, low, step, viaR, ringR (ring size, if not R) }
   build(o) {
     const A = AIRPORTS[0], H = (x, z) => Math.max(heightAt(x, z), WATER), n = o.count, R = o.R, clear = o.clear, legClr = o.legClr ?? clear * 0.6, seed = o.seed, spread = o.spread || 13, siteR = o.siteR || 90, low = o.low || 0.25, wing = R + (o.wingM ?? 24);
     const MAX_UP = 0.12, MAX_DOWN = 0.15, BEAM = 16, via = o.via.map(v => ({ x: A.x + v.x, z: A.z + v.z }));
@@ -1891,7 +1910,7 @@ class RingCourse {
       const seen = new Set(); beam = [];
       for (const c of next) { const key = Math.round(c.x / 200) + ',' + Math.round(c.z / 200); if (seen.has(key)) continue; seen.add(key); beam.push(c); if (beam.length >= BEAM) break; }
     }
-    this.make(beam[0].pts, { x: x0, y: y0, z: z0, hdg: hd0 }, null, R);
+    this.make(beam[0].pts, { x: x0, y: y0, z: z0, hdg: hd0 }, null, o.ringR || R);
   }
   // Build ring meshes for a list of points. start = {x,y,z,hdg}; end (optional) sets the last ring's facing.
   make(pts, start, end, R = 16) {
@@ -2055,6 +2074,8 @@ const sfx = {
 const keys = new Set();
 const BTN_NAMES = ['✕ Cross', '○ Circle', '□ Square', '△ Triangle', 'L1', 'R1', 'L2', 'R2', 'Share', 'Options', 'L3 click', 'R3 click', 'D-pad ↑', 'D-pad ↓', 'D-pad ←', 'D-pad →', 'PS / Home', 'Touchpad'];
 const AXIS_NAMES = ['Left stick ←→', 'Left stick ↑↓', 'Right stick ←→', 'Right stick ↑↓'];
+// the fire control as this player knows it
+const fireName = (touchLabel = 'FIRE') => Touch.enabled ? touchLabel : Pad.connected ? btnName(S.buttons.fire) : 'X';
 const btnName = i => (i == null ? '—' : (Pad.mapping === 'standard' || !Pad.connected) && BTN_NAMES[i] ? BTN_NAMES[i] : 'Button ' + i);
 const axisName = i => (Pad.mapping === 'standard' || !Pad.connected) && AXIS_NAMES[i] ? AXIS_NAMES[i] : 'Axis ' + i;
 const Pad = {
@@ -2202,7 +2223,7 @@ function arcadePilot(dt) {
    screen is touched (keyboard, mouse or controller use hides them again).
    ===================================================================== */
 const Touch = {
-  active: matchMedia('(pointer:coarse)').matches, shown: false, roll: 0, pitch: 0, yaw: 0, brake: false, fire: false, modeLabel: '',
+  active: matchMedia('(pointer:coarse)').matches, shown: false, roll: 0, pitch: 0, yaw: 0, brake: false, fire: false, modeLabel: '', fireLabel: 'FIRE',
   use(on) { if (S.touch === 'auto') this.active = on; },
   get enabled() { return S.touch === 'on' || (S.touch !== 'off' && this.active); },
   init() {
@@ -2249,6 +2270,8 @@ const Touch = {
     this.kR.style.transform = `translate(${this.roll * k}%,${this.pitch * k}%)`;
     const ml = plane.arcade ? 'ARC' : 'NAT';
     if (ml !== this.modeLabel) { this.modeLabel = ml; $('#tMode').textContent = ml; $('#stRlab').textContent = plane.arcade ? 'AIM' : 'STICK'; }
+    const fl = G.ms && G.ms.type === 'drop' ? 'DROP' : 'FIRE';
+    if (fl !== this.fireLabel) { this.fireLabel = fl; $('#tFire').textContent = fl; }
   },
 };
 
@@ -2281,6 +2304,11 @@ function setupWind() {
   env.dirDeg = wrap360(A.hd + 22); env.speed = sp;
   env.base.set(-Math.sin(env.dirDeg * DEG), 0, Math.cos(env.dirDeg * DEG)).multiplyScalar(sp);
   env.gust = { calm: 0, light: 0.7, breezy: 1.8 }[S.wind] ?? 0.7;
+}
+// a mission's own wind, until endMission puts the one from Settings back
+function forceWind(speed, gust, dirDeg = env.dirDeg) {
+  env.dirDeg = wrap360(dirDeg); env.speed = speed; env.gust = gust; env.forced = true;
+  env.base.set(-Math.sin(env.dirDeg * DEG), 0, Math.cos(env.dirDeg * DEG)).multiplyScalar(speed);
 }
 function updateWind(dt) {
   env.t += dt; const t = env.t, g = env.gust;
@@ -2363,7 +2391,7 @@ function spawn(mode, keepLanding = false, opt = null) {
   showOverlay(null);
   sfx.init();
 }
-function restartFlight() { if (G.ms) startMission(G.ms.mis.id, true); else spawn(G.spawn || 'free', true); }
+function restartFlight() { if (G.ms) startMission(G.ms.mis.id, true, G.ms.diff); else spawn(G.spawn || 'free', true); }
 function startFree(mode) { endMission(); spawn(mode); setupFreeFlight(); }
 
 /* =====================================================================
@@ -2549,8 +2577,16 @@ function drawHUD(dt) {
   }
   // supply drop: where a crate released now would land
   if (show && G.ms && G.ms.type === 'drop' && G.state === 'flying' && plane.wheelsDown === 0) {
-    const ip = predictCrate();
-    if (ip) { project(ip, scr); if (!scr.behind) { c.strokeStyle = '#7ee08f'; c.lineWidth = 2 * s; c.beginPath(); c.arc(scr.x, scr.y, 10 * s, 0, 7); c.moveTo(scr.x - 16 * s, scr.y); c.lineTo(scr.x - 6 * s, scr.y); c.moveTo(scr.x + 6 * s, scr.y); c.lineTo(scr.x + 16 * s, scr.y); c.stroke(); } }
+    const ms = G.ms, ip = ms.lv.blind ? null : predictCrate(), zn = ms.zones[ms.zi], onTarget = ip && zn && Math.hypot(ip.x - zn.p.x, ip.z - zn.p.z) < zn.r;
+    if (ip) { project(ip, scr); if (!scr.behind) { c.strokeStyle = onTarget ? '#7dffb0' : '#ffd23a'; c.lineWidth = 2 * s; c.beginPath(); c.arc(scr.x, scr.y, 10 * s, 0, 7); c.moveTo(scr.x - 16 * s, scr.y); c.lineTo(scr.x - 6 * s, scr.y); c.moveTo(scr.x + 6 * s, scr.y); c.lineTo(scr.x + 16 * s, scr.y); c.stroke(); } }
+    // say which button drops a crate until it has been used, and again whenever a crate would land in the zone
+    if (onTarget || !ms.crates) {
+      const t = onTarget ? `On target: press ${fireName('DROP')} to drop!` : `Press ${fireName('DROP')} to drop a crate`;
+      c.font = F(18, 700); c.textAlign = 'center';
+      const w = c.measureText(t).width + 34 * s, y = H * 0.7;
+      rr(c, W / 2 - w / 2, y - 18 * s, w, 36 * s, 18 * s); c.fillStyle = 'rgba(8,14,22,0.7)'; c.fill();
+      c.fillStyle = onTarget ? '#7dffb0' : '#ffe3a8'; c.fillText(t, W / 2, y + 1 * s);
+    }
   }
   // arcade aim circle
   if (show && plane.arcade && G.state === 'flying') {
@@ -2704,14 +2740,14 @@ function drawHUD(dt) {
     c.textAlign = 'left'; c.font = F(13);
     const tl = [];
     if (G.ms) {
-      const ms = G.ms, rec = SAVE.missions[ms.mis.id];
-      tl.push([`${ms.mis.ic} ${ms.mis.name.toUpperCase()}`, '#ffd23a'], [MT[ms.type].objective(ms), '#fff']);
+      const ms = G.ms, rec = recOf(ms.mis.id, ms.diff);
+      tl.push([`${ms.mis.ic} ${misName(ms).toUpperCase()}`, '#ffd23a'], [MT[ms.type].objective(ms), '#fff']);
       if (ms.type !== 'landing') tl.push([fmtTime(ms.t + ms.penalty) + (rec && rec.best ? `   best ${fmtTime(rec.best)}` : ''), '#fff']);
     } else tl.push([(plane.arcade ? 'FREE FLIGHT · ARCADE' : 'FREE FLIGHT'), '#ffd23a'], [`Beacons ${SAVE.beacons.length} / ${BEACONS.length}`, '#8ff0ff']);
     const na2 = nearestAirport();
     if (na2) tl.push([`${na2.a.code} ${na2.a.name} · ${units.dist(na2.d)}`, 'rgba(160,240,255,0.95)']);
     const hpPct = Math.round(plane.hp / plane.sp.hp * 100);
-    tl.push([`Rockets ${plane.rockets}/${plane.sp.rockets}   HP ${hpPct}%   ◆ ${fmtPts(SAVE.points)}`, hpPct < 35 ? '#ff8a6a' : '#ffd27a']);
+    tl.push([`${G.ms && G.ms.type === 'drop' ? `Crates dropped ${G.ms.crates}` : `Rockets ${plane.rockets}/${plane.sp.rockets}`}   HP ${hpPct}%   ◆ ${fmtPts(SAVE.points)}`, hpPct < 35 ? '#ff8a6a' : '#ffd27a']);
     // touch hides the systems panel, so show its essentials here
     if (touch) tl.push([`THR ${Math.round(plane.throttle * 100)}%   FLAPS ${['UP', '15°', '35°'][Math.round(plane.flapTarget * 2)]}${plane.brake > 0.1 ? '   BRAKES' : ''}`, '#cfefff']);
     panelBG(c, 16 * s, 16 * s, 300 * s, (14 + tl.length * 19) * s, 8 * s);
@@ -2859,7 +2895,7 @@ function drawPanel() {
 /* =====================================================================
    UI: menus, settings, controller config, gamepad navigation
    ===================================================================== */
-const OVERLAYS = ['menu', 'pause', 'controls', 'settings', 'help', 'crash', 'result', 'missions', 'hangar', 'ach'];
+const OVERLAYS = ['menu', 'pause', 'controls', 'settings', 'help', 'crash', 'result', 'missions', 'levels', 'hangar', 'ach'];
 const uiStack = [];
 function showOverlay(id) {
   uiStack.length = 0; if (id) uiStack.push(id); renderOverlays();
@@ -2877,6 +2913,7 @@ function renderOverlays() {
   if (top === 'controls') buildControlsUI();
   if (top === 'settings') buildSettingsUI();
   if (top === 'missions') buildMissionsUI();
+  if (top === 'levels') buildLevelsUI();
   if (top === 'hangar') buildHangarUI();
   if (top === 'ach') buildAchUI();
   if (top === 'menu' || top === 'pause') updateMenuInfo();
@@ -2898,8 +2935,9 @@ function doAction(act) {
     case 'missions': pushOverlay('missions'); break;
     case 'hangar': pushOverlay('hangar'); break;
     case 'ach': pushOverlay('ach'); break;
-    case 'mission': startMission(arg); break;
-    case 'next': { const i = MISSIONS.findIndex(m => m.id === arg); const n = MISSIONS[i + 1]; if (n && isUnlocked(n)) startMission(n.id); else { goMenu(); pushOverlay('missions'); } break; }
+    case 'mission': openMission(arg); break;
+    case 'fly': { const [id, d] = arg.split(':'); startMission(id, false, +d); break; }
+    case 'next': { const i = MISSIONS.findIndex(m => m.id === arg); const n = MISSIONS[i + 1]; if (n && isUnlocked(n)) openMission(n.id); else { goMenu(); pushOverlay('missions'); } break; }
     case 'plane': hangarPlane(arg); break;
     case 'paint': hangarPaint(+arg); break;
     case 'claim': claimDaily(); break;
@@ -2926,7 +2964,7 @@ function placeParked() {
 // let a parked plane settle onto its gear
 function settlePlane() { for (let i = 0; i < 480; i++) plane.step(1 / 240, { roll: 0, pitch: 0, yaw: 0, throttle: 0, brake: 1 }, env); plane.events.length = 0; }
 function goMenu() { endMission(); clearEnts(); placeParked(); settlePlane(); G.state = 'menu'; persist(); showOverlay('menu'); }
-function pauseGame() { if (G.state !== 'flying') return; G.state = 'paused'; $('#pauseInfo').textContent = (G.ms ? G.ms.mis.name : 'Free flight') + ' · ' + plane.sp.name; showOverlay('pause'); }
+function pauseGame() { if (G.state !== 'flying') return; G.state = 'paused'; $('#pauseInfo').textContent = (G.ms ? misName(G.ms) : 'Free flight') + ' · ' + plane.sp.name; showOverlay('pause'); }
 function setFlightMode(m) {
   S.flightMode = m; saveSettings();
   plane.setArcade(m === 'arcade'); aimFromPlane();
@@ -3367,9 +3405,9 @@ function lineOfSight(a, b) {
   return true;
 }
 const Weapons = {
-  rockets: [], shells: [], flashes: [], crates: [], side: 1, cd: 0, lockTarget: null, lockT: 0, locked: false, emptyT: -99, fireBlock: true,
+  rockets: [], rocketId: 0, shells: [], flashes: [], crates: [], side: 1, cd: 0, lockTarget: null, lockT: 0, locked: false, emptyT: -99, fireBlock: true,
   clear() {
-    for (const r of this.rockets) scene.remove(r.m);
+    for (const r of this.rockets) { scene.remove(r.m); particles.held.delete(r.id); }
     for (const s of this.shells) scene.remove(s.s);
     for (const f of this.flashes) scene.remove(f.s);
     for (const c of this.crates) scene.remove(c.g);
@@ -3377,7 +3415,7 @@ const Weapons = {
     this.lockTarget = null; this.lockT = 0; this.locked = false; this.cd = 0;
   },
   launch() {
-    if (plane.rockets <= 0) { if (G.time - this.emptyT > 3) { this.emptyT = G.time; msg('Out of rockets. Stop on any airfield to rearm', '#ffcc4d', 2.5); } return false; }
+    if (plane.rockets <= 0) { if (G.time - this.emptyT > 3) { this.emptyT = G.time; msg(G.ms && G.ms.type === 'balloons' ? 'Out of rockets. Fly through the balloons, or stop on any airfield to rearm' : 'Out of rockets. Stop on any airfield to rearm', '#ffcc4d', 2.5); } return false; }
     plane.rockets--; this.side = -this.side;
     const pod = vis.pods[this.side > 0 ? 1 : 0];
     const p = new V3(pod.x * plane.sx, pod.y * plane.sy, pod.z * plane.sl).applyQuaternion(plane.q).add(plane.pos);
@@ -3386,7 +3424,8 @@ const Weapons = {
     const dir = plane.arcade && nose.angleTo(aim.dir) < 25 * DEG ? aim.dir : nose;
     const m = new THREE.Mesh(rocketGeo, rocketMat); m.position.copy(p);
     const glow = new THREE.Sprite(flameMat); glow.scale.setScalar(2.6); glow.position.z = -0.85; m.add(glow); scene.add(m);
-    this.rockets.push({ m, glow, p, prev: p.clone(), v: plane.vel.clone().addScaledVector(dir, 25), t: 0, target: this.locked ? this.lockTarget : null });
+    const id = ++this.rocketId; particles.held.add(id);
+    this.rockets.push({ m, glow, p, prev: p.clone(), v: plane.vel.clone().addScaledVector(dir, 25), t: 0, target: this.locked ? this.lockTarget : null, id, smoke: 0 });
     sfx.rocket(); SAVE.stats.rockets++; if (SAVE.stats.rockets >= 100) unlock('rockets100');
     return true;
   },
@@ -3414,18 +3453,23 @@ const Weapons = {
         vd.lerp(rel, Math.min(1, (burn ? 7 : 5) * dt)).normalize(); r.v.copy(vd).multiplyScalar(sp);
       }
       const fwd = _w2.copy(r.v).divideScalar(sp || 1);
-      if (burn) {
-        r.v.addScaledVector(fwd, 230 * dt);
-        particles.emit(r.p.x - fwd.x, r.p.y - fwd.y, r.p.z - fwd.z, (Math.random() - 0.5) * 1.5, (Math.random() - 0.5) * 1.5, (Math.random() - 0.5) * 1.5, 1.8, 0.8, 2.6, 0.86, 0.86, 0.84, 0.5, 0.8, 0.4);
-      } else r.glow.visible = false;
+      if (burn) r.v.addScaledVector(fwd, 230 * dt);
       sp = r.v.length();
       r.v.y -= 9.81 * dt * (burn ? 0.3 : 1); r.v.multiplyScalar(1 - Math.min(0.5, 0.0004 * sp * dt));
       r.p.addScaledVector(r.v, dt);
       r.m.position.copy(r.p); r.m.lookAt(_w3.copy(r.p).add(r.v));
+      // evenly spaced smoke the whole way: it hangs in the air until the rocket is gone, then drifts off.
+      // Spaced wider with more rockets flying, and it leaves room for explosions.
+      const seg = r.prev.distanceTo(r.p), gap = (S.quality === 'low' ? 8 : 4) + this.rockets.length;
+      let s = Math.max(gap - r.smoke, 0);
+      for (; s <= seg && seg > 0; s += gap) {
+        if (particles.n < particles.max - 800) { _w3.lerpVectors(r.prev, r.p, s / seg); particles.emit(_w3.x, _w3.y, _w3.z, (Math.random() - 0.5) * 1.5, (Math.random() - 0.5) * 1.5, (Math.random() - 0.5) * 1.5, 3, 1.2, 2.6, 0.86, 0.86, 0.84, 0.6, 0.8, 0.4, r.id); }
+      }
+      r.smoke = seg - (s - gap);
       let hit = false, water = false;
       for (const e of ENTS) if (e.alive && e.hit && distSeg(e.p, r.prev, r.p) < e.r + (e === tg ? 8 : 1.5)) { hit = true; break; } // locked rockets have a proximity fuse
       if (!hit) { const gh = groundHeight(r.p.x, r.p.z); if (r.p.y < Math.max(gh, WATER)) { hit = true; water = gh < WATER; r.p.y = Math.max(gh, WATER) + 0.3; } }
-      if (hit || r.t > 12) { explode(r.p, 1, { water, air: !hit }); scene.remove(r.m); this.rockets.splice(i, 1); }
+      if (hit || r.t > 12) { explode(r.p, 1, { water, air: !hit }); scene.remove(r.m); particles.held.delete(r.id); this.rockets.splice(i, 1); }
     }
     // flak shells burst on their fuse
     for (let i = this.shells.length - 1; i >= 0; i--) {
@@ -3521,8 +3565,8 @@ function predictCrate() {
 const darkMat = new THREE.MeshLambertMaterial({ color: 0x222222 }), burntMat = new THREE.MeshLambertMaterial({ color: 0x1c1a18 });
 const balloonGeo = new THREE.SphereGeometry(5, 20, 14), basketGeo = new THREE.BoxGeometry(1.6, 1.3, 1.6), ropeGeo = new THREE.CylinderGeometry(0.05, 0.05, 2.4, 4), basketMat = new THREE.MeshLambertMaterial({ color: 0x7a5530 });
 class Balloon {
-  constructor(p, color) {
-    this.kind = 'balloon'; this.label = 'Balloon'; this.pts = 10; this.mapColor = '#ff5d8f';
+  constructor(p, color, drift = 3) {
+    this.drift = drift; this.kind = 'balloon'; this.label = 'Balloon'; this.pts = 10; this.mapColor = '#ff5d8f';
     this.p = p.clone(); this.base = p.clone(); this.r = 6; this.alive = true; this.t = Math.random() * 9; this.color = color;
     const g = this.g = new THREE.Group(); g.position.copy(p);
     const b = new THREE.Mesh(balloonGeo, new THREE.MeshStandardMaterial({ color, roughness: 0.35, emissive: color, emissiveIntensity: 0.22 })); b.scale.set(1, 1.2, 1); b.castShadow = true; g.add(b);
@@ -3532,7 +3576,7 @@ class Balloon {
   }
   update(dt) {
     if (!this.alive) return;
-    this.t += dt; this.p.set(this.base.x + Math.sin(this.t * 0.3) * 3, this.base.y + Math.sin(this.t * 0.55) * 2, this.base.z + Math.cos(this.t * 0.27) * 3); this.g.position.copy(this.p);
+    this.t += dt; const k = this.drift; this.p.set(this.base.x + Math.sin(this.t * 0.3) * k, this.base.y + Math.sin(this.t * 0.55) * k * 0.67, this.base.z + Math.cos(this.t * 0.27) * k); this.g.position.copy(this.p);
     if (!plane.crashed && plane.pos.distanceTo(this.p) < this.r + 4 * plane.size) this.hit();
   }
   hit() {
@@ -3589,8 +3633,8 @@ const droneMat = new THREE.MeshStandardMaterial({ color: 0xff7a1a, roughness: 0.
 const droneGeo = { body: new THREE.CylinderGeometry(0.45, 0.3, 5.5, 10).rotateX(Math.PI / 2), wing: new THREE.BoxGeometry(7.5, 0.16, 1.5), tail: new THREE.BoxGeometry(0.14, 1.4, 1.1).translate(0, 0.7, 0), stab: new THREE.BoxGeometry(2.8, 0.12, 0.8) };
 class Drone {
   // circles c (x,z) at radius R and altitude alt, weaving up and down
-  constructor(c, R, alt, speed, phase, dir) {
-    this.kind = 'drone'; this.label = 'Drone'; this.pts = 25; this.mapColor = '#ff4d4d';
+  constructor(c, R, alt, speed, phase, dir, weave = 30) {
+    this.weave = weave; this.kind = 'drone'; this.label = 'Drone'; this.pts = 25; this.mapColor = '#ff4d4d';
     this.c = c; this.R = R; this.alt = alt; this.speed = speed; this.ang = phase; this.dir = dir; this.t = Math.random() * 10;
     this.p = new V3(); this.v = new V3(); this.r = 5; this.alive = true; this.gone = false;
     const g = this.g = new THREE.Group();
@@ -3603,7 +3647,7 @@ class Drone {
   place(dt) {
     this.ang += this.dir * this.speed / this.R * dt; this.t += dt;
     const x = this.c.x + Math.cos(this.ang) * this.R, z = this.c.z + Math.sin(this.ang) * this.R;
-    const y = Math.max(this.alt + Math.sin(this.t * 0.4 + this.ang) * 30, Math.max(heightAt(x, z), WATER) + 60);
+    const y = Math.max(this.alt + Math.sin(this.t * 0.4 + this.ang) * this.weave, Math.max(heightAt(x, z), WATER) + 60);
     if (dt > 0) this.v.set(x - this.p.x, y - this.p.y, z - this.p.z).multiplyScalar(1 / dt);
     this.p.set(x, y, z); this.g.position.copy(this.p);
     // nose along the path, banked into the turn
@@ -3627,8 +3671,9 @@ class Drone {
 const flakMats = { base: new THREE.MeshLambertMaterial({ color: 0x4a4f45 }), gun: new THREE.MeshStandardMaterial({ color: 0x3a3f36, roughness: 0.6, metalness: 0.4 }), bags: new THREE.MeshLambertMaterial({ color: 0x9a8a62 }) };
 const flakGeo = { base: new THREE.CylinderGeometry(2.6, 3.0, 1.2, 12).translate(0, 0.6, 0), bags: new THREE.TorusGeometry(4.2, 0.9, 6, 16).rotateX(Math.PI / 2).translate(0, 0.6, 0), turret: new THREE.BoxGeometry(2.2, 1.4, 2.4), barrel: new THREE.CylinderGeometry(0.16, 0.18, 4.2, 8).rotateX(Math.PI / 2).translate(0, 0, -2.4) };
 class FlakSite {
-  constructor(x, z) {
-    this.kind = 'flak'; this.label = 'Flak gun'; this.pts = 35; this.mapColor = '#ff6a3a';
+  // rate: shots per second compared to Normal, acc: aim and fuse errors compared to Normal
+  constructor(x, z, rate = 1, acc = 1) {
+    this.rate = rate; this.acc = acc; this.kind = 'flak'; this.label = 'Flak gun'; this.pts = 35; this.mapColor = '#ff6a3a';
     const h = Math.max(heightAt(x, z), WATER); this.p = new V3(x, h + 2, z); this.r = 7; this.alive = true; this.cool = 2 + Math.random() * 3; this.smokeT = 0;
     const g = this.g = new THREE.Group(); g.position.set(x, h, z);
     g.add(new THREE.Mesh(flakGeo.base, flakMats.base), new THREE.Mesh(flakGeo.bags, flakMats.bags));
@@ -3646,13 +3691,13 @@ class FlakSite {
     this.head.rotation.set(Math.atan2(to.y, Math.hypot(to.x, to.z)), Math.atan2(-to.x, -to.z), 0, 'YXZ');
     this.cool -= dt;
     if (this.cool > 0 || d > 2300) return;
-    this.cool = 1.5 + Math.random() * 1.3;
+    this.cool = (1.5 + Math.random() * 1.3) / this.rate;
     if (!lineOfSight(this.p, plane.pos)) return;
     // lead the target and lift the aim for shell drop; aim error grows with range
-    const sp = 430, tof = d / sp, ap = _w2.copy(plane.pos).addScaledVector(plane.vel, tof).add(randDir(_w3).multiplyScalar(d * 0.02));
+    const sp = 430, tof = d / sp, ap = _w2.copy(plane.pos).addScaledVector(plane.vel, tof).add(randDir(_w3).multiplyScalar(d * 0.02 * this.acc));
     ap.y += 0.5 * 9.81 * tof * tof;
     const dir = ap.sub(this.p).normalize(), muzzle = _w3.copy(this.p).addScaledVector(dir, 4);
-    Weapons.shell(muzzle, dir.multiplyScalar(sp), tof * (0.94 + Math.random() * 0.12));
+    Weapons.shell(muzzle, dir.multiplyScalar(sp), tof * (1 + (Math.random() - 0.5) * 0.12 * this.acc));
     particles.emit(muzzle.x, muzzle.y, muzzle.z, 0, 1, 0, 1.2, 2, 3, 0.4, 0.38, 0.35, 0.6, 1, 0.5);
     sfx.boom(camera.position.distanceTo(muzzle), 0.18);
   }
@@ -3687,8 +3732,8 @@ class Beacon {
 }
 const zonePostGeo = new THREE.ConeGeometry(1.2, 3, 6);
 class DropZone {
-  constructor(x, z, idx) {
-    this.kind = 'zone'; this.idx = idx; this.r = 45; this.alive = true; this.done = false; this.mapColor = '#7ee08f'; this.smokeT = 0;
+  constructor(x, z, idx, r = 45) {
+    this.kind = 'zone'; this.idx = idx; this.r = r; this.alive = true; this.done = false; this.mapColor = '#7ee08f'; this.smokeT = 0;
     const h = Math.max(heightAt(x, z), WATER); this.p = new V3(x, h + 2, z);
     this.mat = new THREE.MeshBasicMaterial({ color: 0xffa040, toneMapped: false });
     const g = this.g = new THREE.Group();
@@ -3732,20 +3777,64 @@ function setupFreeFlight() { clearEnts(); BEACONS.forEach((b, i) => { if (!SAVE.
    Missions. Each type has setup (spawns the plane and its targets), update,
    objective (HUD text), markers (HUD pointers) and optional cleanup/onTouch/onCrate.
    ===================================================================== */
+// A mission with `levels` can be flown harder once the level below it is cleared; levels[0] is Normal.
+// Each level keeps its own record, and only Normal stars count toward unlocking missions.
+const DIFFS = [{ name: 'Normal', pay: 1 }, { name: 'Hard', pay: 1.6 }, { name: 'Ace', pay: 2.5 }];
+const fireTip = k => `Hold ${k} to fire rockets. Keep your aim on a target to lock on`;
 const MISSIONS = [
   { id: 'solo', ic: '🎓', name: 'First Solo', type: 'solo', need: 0, reward: 150, par: [200, 290], goal: 'take off, fly the 4 pattern rings and land', desc: 'Take off from SkyRidge, fly the four traffic-pattern rings and land back on the runway.' },
-  { id: 'rings', ic: '⭕', name: 'Valley Rings', type: 'rings', course: 'valley', need: 0, reward: 250, goal: 'fly through every ring', desc: '16 rings down the fjord, past the high peak and west along the valley under the mountains. Beat the clock.' },
-  { id: 'balloons', ic: '🎈', name: 'Balloon Pop', type: 'balloons', need: 0, reward: 300, par: [210, 330], goal: 'pop all 12 balloons', desc: '12 target balloons drift over the hills. Rockets or the propeller, your call.' },
-  { id: 'landing', ic: '🛬', name: 'Precision Landing', type: 'landing', need: 2, reward: 250, goal: 'touch down softly at the aim point', desc: 'Start on final to a random airfield. Touch down softly, on the centerline, at the aim point.' },
-  { id: 'range', ic: '🎯', name: 'Target Range', type: 'range', need: 3, reward: 350, par: [130, 220], goal: 'destroy the 6 ground targets', desc: 'Trucks and bullseyes on the valley range. Dive, lock on, fire. One good rocket can take out a pair.' },
-  { id: 'drop', ic: '📦', name: 'Supply Drop', type: 'drop', need: 5, reward: 400, par: [210, 320], goal: 'land a crate in each of the 3 smoke zones', desc: 'Drop parachute crates into three smoke-marked zones. Fire releases a crate; the green circle shows where it will land.' },
-  { id: 'canyon', ic: '🏞️', name: 'Canyon Run', type: 'rings', course: 'canyon', need: 7, reward: 450, goal: 'stay low and thread every ring', desc: 'Low and fast: 14 tight rings along a winding river, finishing inside a narrow canyon. Watch your speed!' },
-  { id: 'drones', ic: '🛸', name: 'Drone Hunt', type: 'drones', need: 9, reward: 500, par: [170, 280], goal: 'shoot down all 6 drones', desc: 'Six target drones circle the peaks. Hold your aim on one to lock, then fire.' },
-  { id: 'hop', ic: '🗺️', name: 'Airfield Hop', type: 'hop', need: 12, reward: 500, par: [420, 620], goal: 'touch down at Pine Hollow, then Eagle Peak', desc: 'Touch down at Pine Hollow, then at Eagle Peak high in the mountains. Touch-and-go is fine.' },
-  { id: 'flak', ic: '💥', name: 'Flak Valley', type: 'flak', need: 15, reward: 650, par: [210, 330], goal: 'destroy the 5 flak guns', desc: 'Five flak guns guard the ridges and they shoot back. Rearm and repair at any airfield.' },
+  { id: 'rings', ic: '⭕', name: 'Valley Rings', type: 'rings', course: 'valley', need: 0, reward: 250, goal: 'fly through every ring', desc: '16 rings down the fjord, past the high peak and west along the valley under the mountains. Beat the clock.', levels: [
+    { R: 16, pace: [56, 42], note: 'Wide rings and an easy clock' },
+    { R: 11, pace: [60, 46], note: 'Rings a third smaller and a tighter clock' },
+    { R: 8, pace: [64, 50], note: 'Half-size rings and the tightest clock' },
+  ] },
+  { id: 'landing', ic: '🛬', name: 'Precision Landing', type: 'landing', need: 0, reward: 250, goal: 'touch down softly at the aim point', desc: 'Start on final to a random airfield. Touch down softly, on the centerline, at the aim point.', levels: [
+    { note: 'Whatever wind you set in Settings' },
+    { xwind: 5, gust: 1, note: 'A steady 10 kt crosswind' },
+    { xwind: 9, gust: 2.2, note: 'A gusty 18 kt crosswind' },
+  ] },
+  { id: 'balloons', ic: '🎈', name: 'Balloon Pop', type: 'balloons', need: 0, reward: 300, hint: fireTip, goal: L => `pop all ${L.n} balloons`, desc: 'Target balloons drift over the hills. Lock on and fire, or just fly through them with the propeller.', levels: [
+    { n: 6, drift: 3, par: [150, 240], note: '6 balloons, and rockets to spare in every aircraft' },
+    { n: 9, drift: 12, par: [170, 260], note: '9 balloons that wander' },
+    { n: 12, drift: 25, par: [210, 320], note: '12 balloons that wander a long way' },
+  ] },
+  { id: 'range', ic: '🎯', name: 'Target Range', type: 'range', need: 3, reward: 350, hint: fireTip, goal: L => `destroy the ${L.n} ground targets${L.flak ? ` and ${L.flak} flak guns` : ''}`, desc: 'Trucks and bullseyes on the valley range. Dive, lock on, fire. One good rocket can take out a pair.', levels: [
+    { n: 6, par: [130, 220], note: '6 undefended targets' },
+    { n: 8, flak: 2, par: [190, 300], note: '8 targets guarded by 2 flak guns' },
+    { n: 10, flak: 4, par: [270, 410], note: '10 targets guarded by 4 flak guns' },
+  ] },
+  { id: 'drop', ic: '📦', name: 'Supply Drop', type: 'drop', need: 5, reward: 400, hint: (k, L) => L.blind ? `Press ${k} to drop a crate. No landing marker here: judge it by eye` : `Press ${k} to drop a crate. The circle turns green when it would land in the zone`, goal: L => `land a crate in each of the ${L.n} smoke zones`, desc: 'Drop parachute crates into the smoke-marked zones. Your rocket button releases a crate, and the circle shows where it will land.', levels: [
+    { n: 3, r: 45, par: [210, 320], note: '3 wide zones with a landing marker' },
+    { n: 4, r: 32, wind: 6, gust: 1, par: [260, 390], note: '4 smaller zones in a stiff wind' },
+    { n: 5, r: 30, wind: 7, gust: 1.5, blind: true, par: [380, 540], note: '5 small zones, strong wind and no landing marker' },
+  ] },
+  { id: 'canyon', ic: '🏞️', name: 'Canyon Run', type: 'rings', course: 'canyon', need: 7, reward: 450, goal: 'stay low and thread every ring', desc: 'Low and fast: 14 tight rings along a winding river, finishing inside a narrow canyon. Watch your speed!', levels: [
+    { R: 13, pace: [56, 42], note: 'Tight rings and an easy clock' },
+    { R: 10, pace: [60, 46], note: 'Smaller rings and a tighter clock' },
+    { R: 7, pace: [64, 50], note: 'Rings barely wider than your wings and the tightest clock' },
+  ] },
+  { id: 'drones', ic: '🛸', name: 'Drone Hunt', type: 'drones', need: 9, reward: 500, hint: fireTip, goal: L => `shoot down all ${L.n} drones`, desc: 'Target drones circle the peaks. Hold your aim on one to lock, then fire.', levels: [
+    { n: 6, speed: [36, 14], weave: 30, par: [170, 280], note: '6 slow drones' },
+    { n: 8, speed: [48, 16], weave: 50, par: [220, 340], note: '8 faster drones that weave' },
+    { n: 10, speed: [60, 20], weave: 80, par: [300, 450], note: '10 drones about as fast as a trainer, weaving hard' },
+  ] },
+  { id: 'hop', ic: '🗺️', name: 'Airfield Hop', type: 'hop', need: 12, reward: 500, goal: L => `touch down at ${L.legs.map(i => AIRPORTS[i].name).join(', then ')}`, desc: 'Fly from airfield to airfield and touch down on each runway in turn. Touch-and-go is fine.', levels: [
+    { legs: [1, 2], par: [420, 620], note: 'Pine Hollow, then Eagle Peak high in the mountains' },
+    { legs: [1, 2, 0], par: [620, 820], note: 'Back to SkyRidge as well, on a tighter clock' },
+    { legs: [1, 2, 0, 4], wind: 7, gust: 1.5, par: [880, 1150], note: 'On to Granite Field too, in a stiff wind, on the tightest clock' },
+  ] },
+  { id: 'flak', ic: '💥', name: 'Flak Valley', type: 'flak', need: 15, reward: 650, hint: fireTip, goal: L => `destroy the ${L.guns} flak guns`, desc: 'Flak guns guard the ridges and they shoot back. Rearm and repair at any airfield.', levels: [
+    { guns: 5, drones: 2, rate: 1, acc: 1, par: [210, 330], note: '5 guns and 2 drones' },
+    { guns: 7, drones: 3, rate: 1.4, acc: 0.75, par: [270, 400], note: '7 faster, sharper guns and 3 drones' },
+    { guns: 9, drones: 4, rate: 2, acc: 0.5, par: [360, 540], note: '9 guns firing twice as fast and far more accurately, and 4 drones' },
+  ] },
 ];
 const totalStars = () => MISSIONS.reduce((s, m) => s + ((SAVE.missions[m.id] && SAVE.missions[m.id].stars) || 0), 0);
 const isUnlocked = m => totalStars() >= m.need;
+const recKey = (id, d) => d ? id + '@' + d : id;
+const recOf = (id, d = 0) => SAVE.missions[recKey(id, d)] || {};
+const levelOpen = (m, d) => !d || !!recOf(m.id, d - 1).stars;
+const misName = ms => ms.mis.name + (ms.diff ? ' · ' + DIFFS[ms.diff].name : '');
 const starStr = n => '★'.repeat(n) + `<i>${'★'.repeat(3 - n)}</i>`;
 const rwNum = hd => String(Math.round(wrap360(hd) / 10) % 36 || 36).padStart(2, '0');
 const mountainAng = () => Math.atan2(MOUNTAIN_GOAL.x - AIRPORTS[0].x, -(MOUNTAIN_GOAL.z - AIRPORTS[0].z));
@@ -3804,7 +3893,7 @@ const MT = {
         if (r) { sfx.chime(); if (r === 'finish') { ms.phase = 'land'; msg(`Pattern done! Land on runway ${rwNum(AIRPORTS[0].hd)} and stop`, '#ffe3a8', 5); } else msg(`Ring ${rings.idx} / ${rings.list.length}`, '#ffd23a', 1.6); }
       } else {
         const rw = onRunway(plane.pos.x, plane.pos.z);
-        if (plane.wheelsDown >= 2 && Math.hypot(plane.vel.x, plane.vel.z) < 3 && rw && rw.a === AIRPORTS[0]) finishMission(timeResult(ms, ms.mis.par));
+        if (plane.wheelsDown >= 2 && Math.hypot(plane.vel.x, plane.vel.z) < 3 && rw && rw.a === AIRPORTS[0]) finishMission(timeResult(ms, ms.par));
       }
     },
     objective: ms => ms.phase === 'rings' ? `Pattern ring ${Math.min(rings.idx + 1, rings.list.length)} / ${rings.list.length}` : `Land on runway ${rwNum(AIRPORTS[0].hd)} and stop`,
@@ -3813,9 +3902,9 @@ const MT = {
   },
   rings: {
     setup(ms) {
-      rings.build(COURSES[ms.mis.course]);
+      rings.build({ ...COURSES[ms.mis.course], ringR: ms.lv.R }); // harder levels fly the same route through smaller rings
       spawn('rings');
-      ms.par = [rings.len / 56, rings.len / 42];
+      ms.par = [rings.len / ms.lv.pace[0], rings.len / ms.lv.pace[1]];
     },
     update(ms, dt) {
       const r = rings.update(dt, prevPos, plane.pos);
@@ -3827,7 +3916,10 @@ const MT = {
     cleanup() { rings.stop(); },
   },
   landing: {
-    setup(ms, keep) { spawn('landing', keep); const L = G.landing; ms.thP = new V3(L.thx, L.a.elev + 3, L.thz); },
+    setup(ms, keep) {
+      spawn('landing', keep); const L = G.landing; ms.thP = new V3(L.thx, L.a.elev + 3, L.thz);
+      if (ms.lv.xwind) { plane.vel.sub(env.base); forceWind(ms.lv.xwind, ms.lv.gust, L.hd + (Math.random() < 0.5 ? 90 : -90)); plane.vel.add(env.base); } // the plane starts moving with the air, so it isn't skidding sideways
+    },
     update() { updateLandingChallenge(); },
     objective: () => G.landing ? `Runway ${rwNum(G.landing.hd)} at ${G.landing.a.name}` : '',
     markers: ms => [{ p: ms.thP, c: '#62e3ff', l: 'THRESHOLD' }],
@@ -3835,29 +3927,31 @@ const MT = {
   balloons: {
     setup(ms) {
       const A = AIRPORTS[0], rng = mulberry32(4401), base = mountainAng(), cols = [0xff3355, 0xffc83d, 0x3dd6ff, 0x7dff6a, 0xff6aff, 0xff8a2e], spots = [];
-      for (let guard = 0; spots.length < 12 && guard < 3000; guard++) {
+      for (let guard = 0; spots.length < ms.lv.n && guard < 3000; guard++) {
         const a = base + (rng() - 0.5) * 1.7, r = 1500 + rng() * 3400, x = A.x + Math.sin(a) * r, z = A.z - Math.cos(a) * r;
         const p = new V3(x, Math.max(heightAt(x, z), WATER) + 60 + rng() * 160, z);
         if (!spots.some(o => o.distanceTo(p) < 420)) spots.push(p);
       }
-      spots.forEach((p, i) => ENTS.push(new Balloon(p, cols[i % cols.length])));
+      spots.forEach((p, i) => ENTS.push(new Balloon(p, cols[i % cols.length], ms.lv.drift)));
       ms.total = spots.length;
       const c = spots.reduce((s, p) => s.add(p), new V3()).multiplyScalar(1 / spots.length);
       airStartToward(c.x, c.z, 3200, 300);
     },
-    update(ms) { if (ENTS.every(e => !e.alive)) finishMission(timeResult(ms, ms.mis.par, [['Balloons popped', `${ms.total} / ${ms.total}`]])); },
+    update(ms) { if (ENTS.every(e => !e.alive)) finishMission(timeResult(ms, ms.par, [['Balloons popped', `${ms.total} / ${ms.total}`]])); },
     objective: ms => `Balloons ${countDead('balloon')} / ${ms.total}`,
     markers: () => nearestAlive('#ff5d8f', 'BALLOON'),
   },
   range: {
     setup(ms) {
       const rng = mulberry32(5150), c0 = polar(mountainAng() + 2.1, 4800), s = flatSpot(c0.x, c0.z, 1800, rng) || c0;
-      const layout = [['truck', 0, 0], ['truck', 14, 6], ['board', -150, 90], ['truck', 120, -110], ['truck', 132, -100], ['board', 60, 190]], rot = rng() * Math.PI;
-      for (const [kind, u, v] of layout) ENTS.push(new GroundTarget(s.x + u * Math.cos(rot) - v * Math.sin(rot), s.z + u * Math.sin(rot) + v * Math.cos(rot), kind, rot + (rng() - 0.5)));
-      ms.total = layout.length;
+      const layout = [['truck', 0, 0], ['truck', 14, 6], ['board', -150, 90], ['truck', 120, -110], ['truck', 132, -100], ['board', 60, 190], ['truck', -260, -160], ['truck', -248, -150], ['board', 300, 120], ['truck', -40, -280]].slice(0, ms.lv.n), rot = rng() * Math.PI;
+      const guns = [[520, 340], [-560, 300], [180, -620], [-460, -520]].slice(0, ms.lv.flak || 0), at = (u, v) => [s.x + u * Math.cos(rot) - v * Math.sin(rot), s.z + u * Math.sin(rot) + v * Math.cos(rot)];
+      for (const [kind, u, v] of layout) ENTS.push(new GroundTarget(...at(u, v), kind, rot + (rng() - 0.5)));
+      for (const [u, v] of guns) ENTS.push(new FlakSite(...at(u, v), ms.lv.rate, ms.lv.acc));
+      ms.total = layout.length + guns.length;
       airStartToward(s.x, s.z, 3000, 350);
     },
-    update(ms) { if (ENTS.every(e => !e.alive)) finishMission(timeResult(ms, ms.mis.par, [['Targets destroyed', `${ms.total} / ${ms.total}`]])); },
+    update(ms) { if (ENTS.every(e => !e.alive)) finishMission(timeResult(ms, ms.par, [['Targets destroyed', `${ms.total} / ${ms.total}`]])); },
     objective: ms => `Targets ${ENTS.filter(e => !e.alive).length} / ${ms.total}`,
     markers: () => nearestAlive('#ff8a3a', 'TARGET'),
   },
@@ -3865,7 +3959,7 @@ const MT = {
     setup(ms) {
       const rng = mulberry32(6262); let from = AIRPORTS[0], a = mountainAng() - 1.4;
       ms.zones = []; ms.zi = 0; ms.crates = 0;
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < ms.lv.n; i++) {
         // try a few headings and keep the lowest, flattest spot with the lowest terrain on the way there
         let best = null;
         for (let k = 0; k < 7; k++) {
@@ -3875,7 +3969,7 @@ const MT = {
           if (!best || cost < best.cost) best = { x: s.x, z: s.z, cost, b };
         }
         if (!best) { const c0 = polar(a, 3200, from); best = { x: c0.x, z: c0.z, b: a }; }
-        const zn = new DropZone(best.x, best.z, i); ENTS.push(zn); ms.zones.push(zn);
+        const zn = new DropZone(best.x, best.z, i, ms.lv.r); ENTS.push(zn); ms.zones.push(zn);
         from = { x: best.x, z: best.z }; a = best.b + (rng() < 0.5 ? -1 : 1) * (0.8 + rng() * 0.5);
       }
       airStartToward(ms.zones[0].p.x, ms.zones[0].p.z, 3000, 260);
@@ -3886,36 +3980,37 @@ const MT = {
       if (d < zn.r && !water) {
         zn.setDone(); ms.zi++; addPoints(20); ms.earned += 20; sfx.chime();
         msg(`Crate on target! ${Math.round(d)} m from the center · +20`, '#7dffb0', 3);
-        if (ms.zi >= ms.zones.length) finishMission(timeResult(ms, ms.mis.par, [['Crates dropped', String(ms.crates)]]));
+        if (ms.zi >= ms.zones.length) finishMission(timeResult(ms, ms.par, [['Crates dropped', String(ms.crates)]]));
       } else { ms.penalty += 10; msg(`Missed by ${Math.round(Math.max(0, d - zn.r))} m · +10 s`, '#ffcc4d', 2.5); }
     },
     update() { },
-    objective: ms => `Drop zone ${Math.min(ms.zi + 1, ms.zones.length)} / ${ms.zones.length} · fire releases a crate`,
+    objective: ms => `Drop zone ${Math.min(ms.zi + 1, ms.zones.length)} / ${ms.zones.length} · ${fireName('DROP')} drops a crate`,
     markers: ms => ms.zones[ms.zi] ? [{ p: ms.zones[ms.zi].p, c: '#7ee08f', l: 'DROP' }] : [],
   },
   drones: {
     setup(ms) {
       const rng = mulberry32(7373), c0 = polar(mountainAng(), 5200);
       let maxAlt = 0;
-      for (let i = 0; i < 6; i++) {
+      const L = ms.lv;
+      for (let i = 0; i < L.n; i++) {
         const a = rng() * Math.PI * 2, rr = rng() * 1100, c = { x: c0.x + Math.cos(a) * rr, z: c0.z + Math.sin(a) * rr }, R = 320 + rng() * 380;
         let mx = 0; for (let k = 0; k < 16; k++) { const b = k / 16 * Math.PI * 2; mx = Math.max(mx, heightAt(c.x + Math.cos(b) * R, c.z + Math.sin(b) * R)); }
         const alt = Math.max(mx, WATER) + 110 + rng() * 140; maxAlt = Math.max(maxAlt, alt);
-        ENTS.push(new Drone(c, R, alt, 36 + rng() * 14, rng() * Math.PI * 2, rng() < 0.5 ? 1 : -1));
+        ENTS.push(new Drone(c, R, alt, L.speed[0] + rng() * L.speed[1], rng() * Math.PI * 2, rng() < 0.5 ? 1 : -1, L.weave));
       }
-      ms.total = 6;
+      ms.total = L.n;
       airStartToward(c0.x, c0.z, 3800, 300, maxAlt + 60);
     },
-    update(ms) { if (ENTS.every(e => !e.alive)) finishMission(timeResult(ms, ms.mis.par, [['Drones down', `${ms.total} / ${ms.total}`]])); },
+    update(ms) { if (ENTS.every(e => !e.alive)) finishMission(timeResult(ms, ms.par, [['Drones down', `${ms.total} / ${ms.total}`]])); },
     objective: ms => `Drones ${countDead('drone')} / ${ms.total}`,
     markers: () => nearestAlive('#ff4d4d', 'DRONE'),
   },
   hop: {
-    setup(ms) { ms.legs = [AIRPORTS[1], AIRPORTS[2]]; ms.li = 0; airStartToward(ms.legs[0].x, ms.legs[0].z, 3500, 300); },
+    setup(ms) { ms.legs = ms.lv.legs.map(i => AIRPORTS[i]); ms.li = 0; airStartToward(ms.legs[0].x, ms.legs[0].z, 3500, 300); },
     onTouch(ms, fpm, rw) {
       const a = ms.legs[ms.li]; if (!a || !rw || rw.a !== a || ms.done) return;
       ms.li++; addPoints(25); ms.earned += 25; sfx.chime();
-      if (ms.li >= ms.legs.length) finishMission(timeResult(ms, ms.mis.par, [['Airfields', `${ms.legs.length} / ${ms.legs.length}`]]));
+      if (ms.li >= ms.legs.length) finishMission(timeResult(ms, ms.par, [['Airfields', `${ms.legs.length} / ${ms.legs.length}`]]));
       else msg(`Touchdown at ${a.name}! Next: ${ms.legs[ms.li].name}`, '#7dffb0', 4);
     },
     update() { },
@@ -3924,72 +4019,99 @@ const MT = {
   },
   flak: {
     setup(ms) {
-      const rng = mulberry32(8484), c0 = polar(mountainAng() - 2.4, 6500), cands = [], picked = [];
+      const rng = mulberry32(8484), c0 = polar(mountainAng() - 2.4, 6500), cands = [], picked = [], L = ms.lv;
       for (let i = 0; i < 18; i++) for (let j = 0; j < 18; j++) {
         const x = c0.x + (i - 8.5) * 260 + (rng() - 0.5) * 120, z = c0.z + (j - 8.5) * 260 + (rng() - 0.5) * 120, h = heightAt(x, z);
         if (h > 20 && !AIRPORTS.some(a => Math.hypot(a.x - x, a.z - z) < 1500)) cands.push({ x, z, h });
       }
       // walk the highest candidates uphill to their summits so the guns can see the sky around them
       cands.sort((a, b) => b.h - a.h); cands.length = Math.min(cands.length, 40);
-      for (const cd of cands) for (let it = 0; it < 80; it++) {
-        let bx = cd.x, bz = cd.z, bh = cd.h;
-        for (let k = 0; k < 8; k++) { const x = cd.x + Math.cos(k * Math.PI / 4) * 35, z = cd.z + Math.sin(k * Math.PI / 4) * 35, h = heightAt(x, z); if (h > bh) { bx = x; bz = z; bh = h; } }
-        if (bh === cd.h) break; cd.x = bx; cd.z = bz; cd.h = bh;
+      const toSummit = list => {
+        for (const cd of list) for (let it = 0; it < 80; it++) {
+          let bx = cd.x, bz = cd.z, bh = cd.h;
+          for (let k = 0; k < 8; k++) { const x = cd.x + Math.cos(k * Math.PI / 4) * 35, z = cd.z + Math.sin(k * Math.PI / 4) * 35, h = heightAt(x, z); if (h > bh) { bx = x; bz = z; bh = h; } }
+          if (bh === cd.h) break; cd.x = bx; cd.z = bz; cd.h = bh;
+        }
+        list.sort((a, b) => b.h - a.h);
+      };
+      const take = (list, n) => { for (const cd of list) { if (picked.length >= n) break; if (picked.every(o => Math.hypot(o.x - cd.x, o.z - cd.z) > 750)) picked.push(cd); } };
+      toSummit(cands); take(cands, 5);
+      // harder levels add guns on the next summits around those five
+      if (L.guns > 5) {
+        const mx = picked.reduce((s, p) => s + p.x, 0) / picked.length, mz = picked.reduce((s, p) => s + p.z, 0) / picked.length, more = [];
+        for (let i = -9; i <= 9; i++) for (let j = -9; j <= 9; j++) { const x = mx + i * 320, z = mz + j * 320, h = heightAt(x, z); if (h > 300 && Math.hypot(x - mx, z - mz) < 3000 && !AIRPORTS.some(a => Math.hypot(a.x - x, a.z - z) < 1500)) more.push({ x, z, h }); }
+        toSummit(more); take(more, L.guns);
       }
-      cands.sort((a, b) => b.h - a.h);
-      for (const cd of cands) { if (picked.length >= 5) break; if (picked.every(o => Math.hypot(o.x - cd.x, o.z - cd.z) > 750)) picked.push(cd); }
-      while (picked.length < 5) { const a = rng() * Math.PI * 2; picked.push({ x: c0.x + Math.cos(a) * 1200, z: c0.z + Math.sin(a) * 1200 }); }
-      for (const p of picked) ENTS.push(new FlakSite(p.x, p.z));
-      const cx = picked.reduce((s, p) => s + p.x, 0) / 5, cz = picked.reduce((s, p) => s + p.z, 0) / 5;
+      for (let guard = 0; picked.length < L.guns; guard++) { const a = rng() * Math.PI * 2, x = c0.x + Math.cos(a) * 1200, z = c0.z + Math.sin(a) * 1200; if (heightAt(x, z) > 20 || guard > 200) picked.push({ x, z }); }
+      for (const p of picked) ENTS.push(new FlakSite(p.x, p.z, L.rate, L.acc));
+      const cx = picked.reduce((s, p) => s + p.x, 0) / L.guns, cz = picked.reduce((s, p) => s + p.z, 0) / L.guns;
       const top = Math.max(...picked.map(p => heightAt(p.x, p.z)));
-      for (let i = 0; i < 2; i++) ENTS.push(new Drone({ x: cx, z: cz }, 500 + i * 300, top + 200 + i * 80, 42, i * 3, i ? 1 : -1));
-      ms.total = 5;
+      for (let i = 0; i < L.drones; i++) ENTS.push(new Drone({ x: cx, z: cz }, 500 + i * 300, top + 200 + i * 80, 42, i * 3, i ? 1 : -1));
+      ms.total = L.guns;
       airStartToward(cx, cz, 4500, 450, top + 300);
     },
-    update(ms) { if (ENTS.every(e => e.kind !== 'flak' || !e.alive)) finishMission(timeResult(ms, ms.mis.par, [['Flak guns destroyed', `${ms.total} / ${ms.total}`], ['Damage taken', ms.tookDamage ? 'yes' : 'none!']])); },
+    update(ms) { if (ENTS.every(e => e.kind !== 'flak' || !e.alive)) finishMission(timeResult(ms, ms.par, [['Flak guns destroyed', `${ms.total} / ${ms.total}`], ['Damage taken', ms.tookDamage ? 'yes' : 'none!']])); },
     objective: ms => `Flak guns ${countDead('flak')} / ${ms.total}`,
     markers: () => nearestAlive('#ff6a3a', 'FLAK', 'flak'),
   },
 };
-function startMission(id, keep = false) {
+function startMission(id, keep = false, diff = 0) {
   const mis = MISSIONS.find(m => m.id === id); if (!mis) return;
   endMission();
-  G.ms = { mis, type: mis.type, t: 0, penalty: 0, earned: 0, kills: 0, tookDamage: false, done: false };
+  const lv = (mis.levels && mis.levels[diff]) || {};
+  G.ms = { mis, type: mis.type, diff, lv, par: lv.par || mis.par, t: 0, penalty: 0, earned: 0, kills: 0, tookDamage: false, done: false };
+  if (lv.wind) forceWind(lv.wind, lv.gust);
   MT[mis.type].setup(G.ms, keep);
-  msg(`${mis.ic} ${mis.name}: ${mis.goal}`, '#ffe3a8', 6);
+  msg(`${mis.ic} ${misName(G.ms)}: ${typeof mis.goal === 'function' ? mis.goal(lv) : mis.goal}`, '#ffe3a8', 6);
+  if (mis.hint && !recOf(id, mis.type === 'drop' ? diff : 0).plays) msg(mis.hint(fireName(mis.type === 'drop' ? 'DROP' : 'FIRE'), lv), '#cfefff', 8); // until it has been flown; drop levels each work differently
+}
+// a mission with a harder level unlocked asks which one to fly
+let levelsFor = null;
+function openMission(id) {
+  const m = MISSIONS.find(x => x.id === id); if (!m) return;
+  if (!m.levels || !recOf(id).stars) { startMission(id); return; }
+  levelsFor = m; pushOverlay('levels');
+  nav.idx = m.levels.reduce((top, L, d) => levelOpen(m, d) ? d + 1 : top, 1); nav.focus(); // starts on the hardest open level (Back comes first)
 }
 function endMission() {
   if (G.ms) { const t = MT[G.ms.type]; if (t.cleanup) t.cleanup(G.ms); G.ms = null; }
   clearEnts(); rings.stop(); Weapons.clear();
+  if (env.forced) { env.forced = false; setupWind(); }
 }
 function finishMission(res) {
   const ms = G.ms; if (!ms || ms.done) return;
   ms.done = true;
-  const mis = ms.mis, rec = SAVE.missions[mis.id] || { stars: 0, best: 0, plays: 0 }, ok = res.stars > 0;
+  const mis = ms.mis, key = recKey(mis.id, ms.diff), rec = SAVE.missions[key] || { stars: 0, best: 0, plays: 0 }, ok = res.stars > 0, harder = mis.levels && mis.levels[ms.diff + 1];
   let pts = 0, first = false, newBest = false;
   if (ok) {
     first = !rec.stars;
-    pts = Math.round(mis.reward * [0.5, 0.75, 1][res.stars - 1] * (first ? 1.5 : 1));
+    pts = Math.round(mis.reward * DIFFS[ms.diff].pay * [0.5, 0.75, 1][res.stars - 1] * (first ? 1.5 : 1));
     rec.stars = Math.max(rec.stars, res.stars);
     if (res.time != null && (!rec.best || res.time < rec.best)) { newBest = !!rec.best; rec.best = res.time; }
     if (res.score != null && (!rec.score || res.score > rec.score)) { newBest = !!rec.score; rec.score = res.score; }
   }
-  rec.plays = (rec.plays || 0) + 1; SAVE.missions[mis.id] = rec;
+  rec.plays = (rec.plays || 0) + 1; SAVE.missions[key] = rec;
   addPoints(pts);
   if (ok) {
     if (mis.id === 'solo') unlock('solo');
     if (mis.id === 'flak' && !ms.tookDamage) unlock('flawless');
-    if (MISSIONS.every(m => SAVE.missions[m.id] && SAVE.missions[m.id].stars === 3)) unlock('allstars');
+    if (MISSIONS.every(m => recOf(m.id).stars === 3)) unlock('allstars');
+    const leveled = MISSIONS.filter(m => m.levels);
+    if (leveled.every(m => recOf(m.id, 1).stars)) unlock('hardall');
+    if (leveled.every(m => recOf(m.id, 2).stars)) unlock('aceall');
+    if (mis.id === 'flak' && ms.diff === 2) unlock('flakace');
   }
   persist();
   const next = MISSIONS[MISSIONS.indexOf(mis) + 1], nextOk = next && isUnlocked(next);
-  $('#resultTitle').textContent = res.title || (ok ? `${mis.name} complete!` : `${mis.name}: try again`);
+  $('#resultTitle').textContent = res.title ? res.title + (ms.diff ? ' · ' + DIFFS[ms.diff].name : '') : ok ? `${misName(ms)} complete!` : `${misName(ms)}: try again`;
   $('#resultBody').innerHTML = `<div class="bigstars">${starStr(res.stars)}</div>${res.main || ''}` +
     (newBest ? '<div style="text-align:center;margin-bottom:8px;font-weight:700;color:var(--good)">New personal best!</div>' : '') +
+    (ok && first && harder ? `<div style="text-align:center;margin-bottom:8px;font-weight:700;color:var(--accent)">🔓 ${DIFFS[ms.diff + 1].name} unlocked: ${harder.note}</div>` : '') +
     (res.lines || []).map(([k, v]) => `<div class="stat"><span>${k}</span><b>${v}</b></div>`).join('') +
     `<div class="stat"><span>Points earned</span><b style="color:#ffd27a">◆ ${fmtPts(pts + ms.earned)}${first && ok ? ' · first-clear bonus' : ''}</b></div>` +
     `<div class="stat"><span>Your points</span><b>◆ ${fmtPts(SAVE.points)}</b></div>`;
   $('#resultBtns').innerHTML = `<button class="btn primary" data-act="restart">${ok ? 'Fly it again' : 'Try again'}</button>` +
+    (ok && harder ? `<button class="btn" data-act="fly:${mis.id}:${ms.diff + 1}">Try ${DIFFS[ms.diff + 1].name}<small>${harder.note}</small></button>` : '') +
     (next ? `<button class="btn" data-act="next:${mis.id}"${nextOk ? '' : ' disabled'}>Next: ${next.ic} ${next.name}${nextOk ? '' : `<small>Needs ${next.need} ★ in total</small>`}</button>` : '') +
     (mis.course === 'canyon' ? '' : '<button class="btn" data-act="continue">Keep flying here</button>') + '<button class="btn" data-act="mainmenu">Main menu</button>'; // the canyon course ends facing a wall
   if (ok) sfx.fanfare();
@@ -4069,6 +4191,7 @@ function hangarPlane(id) {
 function hangarPaint(i) {
   const p = PAINTS[i]; if (!p) return;
   if (!SAVE.paintsOwned.includes(i)) {
+    if (p.ach && !SAVE.ach[p.ach]) { toast(`${p.name} is the reward for the ${ACH.find(a => a.id === p.ach).name} achievement`); return; }
     if (SAVE.points < p.price) { toast(`Not enough points: ${p.name} costs ◆ ${fmtPts(p.price)}`); return; }
     SAVE.points -= p.price; SAVE.paintsOwned.push(i); sfx.coin();
   }
@@ -4088,18 +4211,32 @@ function buildHangarUI() {
   const cur = SAVE.paint[SAVE.plane] || 0, sp = AIRCRAFT[SAVE.plane];
   const sw = PAINTS.map((p, i) => {
     const c = p.body ? p : sp.paint, own = SAVE.paintsOwned.includes(i);
-    return `<button class="swatch${cur === i ? ' on' : ''}" data-act="paint:${i}" title="${p.name}${own ? '' : ' · ◆ ' + p.price}" style="background:linear-gradient(135deg,${c.body} 0 55%,${c.accent} 55% 78%,${c.dark} 78%)">${own ? (cur === i ? '✓' : '') : '◆' + p.price}</button>`;
+    return `<button class="swatch${cur === i ? ' on' : ''}" data-act="paint:${i}" title="${p.name}${own ? '' : p.ach ? ' · reward for ' + ACH.find(a => a.id === p.ach).name : ' · ◆ ' + p.price}" style="background:linear-gradient(135deg,${c.body} 0 55%,${c.accent} 55% 78%,${c.dark} 78%)">${own ? (cur === i ? '✓' : '') : p.ach ? (SAVE.ach[p.ach] ? '' : '🔒') : '◆' + p.price}</button>`;
   }).join('');
   $('#hangarBody').innerHTML = `<div class="chips"><span class="chip pts">◆ <b>${fmtPts(SAVE.points)}</b> points</span><span class="chip">Earn more from missions, targets, beacons and smooth landings</span></div>
     <div class="mgrid">${cards}</div><h3>Paint for the ${sp.name}</h3><div class="swatches">${sw}</div><div class="note" style="margin-top:6px">${PAINTS[cur].name}. Paint you buy works on every aircraft.</div>`;
 }
+function levelRow(m) {
+  if (!m.levels) return '';
+  if (!recOf(m.id).stars) return '<small>Clear it to unlock Hard, then Ace</small>';
+  return `<small>${DIFFS.slice(1).map((D, i) => `${D.name} ${levelOpen(m, i + 1) ? `<span class="stars">${starStr(recOf(m.id, i + 1).stars || 0)}</span>` : '🔒'}`).join(' · ')}</small>`;
+}
+function buildLevelsUI() {
+  const m = levelsFor; if (!m) return;
+  $('#levelsTitle').textContent = `${m.ic} ${m.name}`;
+  $('#levelsBody').innerHTML = `<div class="note">${m.desc}</div><div class="mgrid">${m.levels.map((L, d) => {
+    const r = recOf(m.id, d), ok = levelOpen(m, d);
+    const best = r.best ? 'Best ' + fmtTime(r.best) : r.score ? 'Best ' + r.score + ' / 100' : ok ? 'Not flown yet' : `Clear ${DIFFS[d - 1].name} to unlock`;
+    return `<button class="mcard${ok ? '' : ' locked'}" ${ok ? `data-act="fly:${m.id}:${d}"` : 'disabled'}><div class="top"><b>${DIFFS[d].name}</b>${ok ? `<span class="stars">${starStr(r.stars || 0)}</span>` : '<span>🔒</span>'}</div><p>${L.note}</p><small>${best} · reward ◆ ${Math.round(m.reward * DIFFS[d].pay)}</small></button>`;
+  }).join('')}</div>`;
+}
 function buildMissionsUI() {
-  const ts = totalStars();
-  $('#missionsBody').innerHTML = `<div class="chips"><span class="chip pts">◆ <b>${fmtPts(SAVE.points)}</b> points</span><span class="chip">★ <b>${ts} / ${MISSIONS.length * 3}</b> stars</span><span class="chip">✈ ${escapeHtml(plane.sp.name)} · ${S.flightMode === 'arcade' ? 'Arcade' : 'Natural'}</span></div>
+  const ts = totalStars(), lvStars = d => MISSIONS.reduce((s, m) => s + (m.levels ? recOf(m.id, d).stars || 0 : 0), 0), nLv = MISSIONS.filter(m => m.levels).length;
+  $('#missionsBody').innerHTML = `<div class="chips"><span class="chip pts">◆ <b>${fmtPts(SAVE.points)}</b> points</span><span class="chip">★ <b>${ts} / ${MISSIONS.length * 3}</b> stars</span>${MISSIONS.some(m => m.levels && recOf(m.id).stars) ? [1, 2].map(d => `<span class="chip">${DIFFS[d].name} ★ <b>${lvStars(d)} / ${nLv * 3}</b></span>`).join('') : ''}<span class="chip">✈ ${escapeHtml(plane.sp.name)} · ${S.flightMode === 'arcade' ? 'Arcade' : 'Natural'}</span></div>
     <div class="mgrid">${MISSIONS.map(m => {
       const r = SAVE.missions[m.id], ok = ts >= m.need;
       const best = r && r.best ? 'Best ' + fmtTime(r.best) : r && r.score ? 'Best ' + r.score + ' / 100' : ok ? 'Not flown yet' : `Earn ${m.need - ts} more ★ to unlock`;
-      return `<button class="mcard${ok ? '' : ' locked'}" ${ok ? `data-act="mission:${m.id}"` : 'disabled'}><div class="top"><span class="ic">${m.ic}</span>${ok ? `<span class="stars">${starStr(r ? r.stars : 0)}</span>` : `<span>🔒 ${m.need} ★</span>`}</div><b>${m.name}</b><p>${m.desc}</p><small>${best} · reward ◆ ${m.reward}</small></button>`;
+      return `<button class="mcard${ok ? '' : ' locked'}" ${ok ? `data-act="mission:${m.id}"` : 'disabled'}><div class="top"><span class="ic">${m.ic}</span>${ok ? `<span class="stars">${starStr(r ? r.stars : 0)}</span>` : `<span>🔒 ${m.need} ★</span>`}</div><b>${m.name}</b><p>${m.desc}</p><small>${best} · reward ◆ ${m.reward}</small>${ok ? levelRow(m) : ''}</button>`;
     }).join('')}</div>`;
 }
 function buildAchUI() {
@@ -4294,7 +4431,7 @@ boot().catch(err => { console.error(err); $('#loadText').textContent = 'Somethin
 // Debug hooks for testing in the console
 window.SKY = {
   plane, AIRPORTS, heightAt, groundHeight, terrainRaw, G, S, ctl, env, spawn, camera, renderer, scene, WORLD, VIEWS,
-  SAVE, AIRCRAFT, COURSES, setAircraft, aircraftStats, arcadePilot, tick(n = 1, dt = 1 / 60, render = false) { G.skipRender = !render; try { for (let i = 0; i < n; i++) tick(dt); } finally { G.skipRender = false; } }, startMission, finishMission, MISSIONS, MT, ENTS, Weapons, aim, setFlightMode, BEACONS, get vis() { return vis; },
+  SAVE, AIRCRAFT, COURSES, setAircraft, aircraftStats, arcadePilot, tick(n = 1, dt = 1 / 60, render = false) { G.skipRender = !render; try { for (let i = 0; i < n; i++) tick(dt); } finally { G.skipRender = false; } }, startMission, openMission, finishMission, MISSIONS, DIFFS, recOf, predictCrate, get particles() { return particles; }, MT, ENTS, Weapons, aim, setFlightMode, BEACONS, get vis() { return vis; },
   get terrain() { return terrain; }, get rings() { return rings; }, MOUNTAIN_GOAL: () => MOUNTAIN_GOAL,
   Pad, startDetect, updateDetect, get detect() { return detect; }, sfx,
   // Run the flight model headless: c = {roll,pitch,yaw,throttle,brake}, returns samples every `every` seconds.
