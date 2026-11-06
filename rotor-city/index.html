@@ -1087,9 +1087,10 @@ class Quad {
       _t1.copy(pl.v).sub(this.wind); pl.v.addScaledVector(_t1, -0.5 * RHO * 0.05 * _t1.length() / pl.m * dt);
       pl.p.addScaledVector(pl.v, dt);
       const fl = Grid.roofBelow(pl.p.x, pl.p.y, pl.p.z);
-      if (pl.p.y - 0.18 < fl) { pl.p.y = fl + 0.18; if (pl.v.y < 0) pl.v.y *= -0.15; pl.v.x *= 1 - dt * 8; pl.v.z *= 1 - dt * 8; pl.ground = true; } else pl.ground = false;
+      if (pl.p.y - 0.2 < fl) { pl.p.y = fl + 0.2; if (pl.v.y < 0) pl.v.y *= -0.15; pl.v.x *= 1 - dt * 8; pl.v.z *= 1 - dt * 8; }
       const h = Grid.sphere(pl.p, 0.2);
       if (h) { pl.p.x += h.nx * h.depth; pl.p.y += h.ny * h.depth; pl.p.z += h.nz * h.depth; const vn = pl.v.x * h.nx + pl.v.y * h.ny + pl.v.z * h.nz; if (vn < 0) { pl.v.x -= 1.3 * vn * h.nx; pl.v.y -= 1.3 * vn * h.ny; pl.v.z -= 1.3 * vn * h.nz; } }
+      pl.ground = pl.p.y - 0.2 < Grid.roofBelow(pl.p.x, pl.p.y, pl.p.z) + 0.05; // resting (package radius 0.2)
     }
     // ---------------- torques (body frame) ----------------
     let tx = 0, ty = 0, tz = 0, H = 0;
