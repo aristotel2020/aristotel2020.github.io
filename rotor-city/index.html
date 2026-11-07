@@ -71,6 +71,22 @@ td,th{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left}
 .swatch.on{border-color:#fff}
 .swatch.lock::after{content:"🔒";position:absolute;inset:0;display:grid;place-items:center;font-size:14px}
 .sbar{display:grid;grid-template-columns:110px 1fr;gap:8px;align-items:center;font-size:13px;color:var(--dim)}
+.show{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:16px;margin:0 0 14px}
+.pvbox{position:relative;min-height:250px;border-radius:14px;border:1px solid var(--line);background:radial-gradient(ellipse 70% 60% at 50% 64%,#1d2b4d 0%,#0b1120 62%,#070a12 100%);overflow:hidden}
+#pvMount{position:absolute;inset:0}
+.pvcv{display:block;width:100%;height:100%;cursor:grab;touch-action:none}
+.pvcv:active{cursor:grabbing}
+.pvtag{position:absolute;left:12px;top:10px;font:800 11px system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--acc);pointer-events:none}
+.pvhint{position:absolute;right:12px;bottom:8px;font-size:11px;color:var(--dim);pointer-events:none}
+.pvinfo{display:flex;flex-direction:column;gap:7px;min-width:0}
+.dgrid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+.dcard{gap:3px;padding:10px}
+.dcard img{width:100%;aspect-ratio:16/10;object-fit:contain;border-radius:9px;background:radial-gradient(ellipse at 50% 62%,#1a2644,#0b1020 75%);margin-bottom:4px}
+.dcard b{font-size:14px}
+.card.pv{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc) inset,0 0 18px rgba(46,230,255,.18)}
+.swatch.pv{border-color:var(--acc);border-style:dashed}
+h1[data-a]{cursor:default}
+@media (max-width:640px){.show{grid-template-columns:1fr}.pvbox{min-height:210px}}
 .ach{display:flex;gap:10px;align-items:center;padding:10px;border-radius:12px;background:var(--panel2);border:1px solid var(--line)}
 .ach.off{opacity:.4;filter:grayscale(1)}
 .ach .ic{font-size:26px}
@@ -153,13 +169,14 @@ function defaultSettings() {
     input: 'auto', mode: 'ALT', kbThrow: 0.75,
     rates: { roll: { rc: 1.0, sr: 0.70, ex: 0.30 }, pitch: { rc: 1.0, sr: 0.70, ex: 0.30 }, yaw: { rc: 1.0, sr: 0.50, ex: 0.20 } },
     angleMax: 50, thrMid: 0.5, thrExpo: 0.25,
-    camTilt: 25, fov: 92, quality: 'high', tod: 'dusk', stickViz: true,
+    camTilt: 25, fov: 92, quality: 'high', tod: 'dusk', stickViz: true, pip: 'auto',
+    debug: { on: false, god: false, ammo: false },
     wind: 0.4, battery: 'extended', damage: 'normal', propwash: true,
     vol: { master: 0.8, motor: 0.7, sfx: 0.8 },
     gp: {
       preset: 'gamepad', deadband: 0.05,
       axes: { thr: { i: 1, inv: true, min: -1, max: 1 }, yaw: { i: 0, inv: false, min: -1, max: 1 }, pitch: { i: 3, inv: true, min: -1, max: 1 }, roll: { i: 2, inv: false, min: -1, max: 1 } },
-      btn: { fire: [{ t: 'b', i: 0 }, { t: 'b', i: 7 }], cam: [{ t: 'b', i: 1 }], mode: [{ t: 'b', i: 2 }], reset: [{ t: 'b', i: 3 }], arm: [{ t: 'b', i: 4 }], pause: [{ t: 'b', i: 9 }] }
+      btn: { fire: [{ t: 'b', i: 0 }, { t: 'b', i: 7 }], cam: [{ t: 'b', i: 1 }], belly: [{ t: 'b', i: 5 }], mode: [{ t: 'b', i: 2 }], reset: [{ t: 'b', i: 3 }], arm: [{ t: 'b', i: 4 }], pause: [{ t: 'b', i: 9 }] }
     }
   };
 }
@@ -167,7 +184,7 @@ const GP_PRESETS = {
   gamepad: () => defaultSettings().gp,
   rc: () => ({ preset: 'rc', deadband: 0.01,
     axes: { thr: { i: 2, inv: false, min: -1, max: 1 }, yaw: { i: 3, inv: false, min: -1, max: 1 }, pitch: { i: 1, inv: false, min: -1, max: 1 }, roll: { i: 0, inv: false, min: -1, max: 1 } },
-    btn: { fire: [{ t: 'b', i: 0 }], cam: [{ t: 'b', i: 1 }], mode: [{ t: 'b', i: 2 }], reset: [{ t: 'b', i: 3 }], arm: [], pause: [] } })
+    btn: { fire: [{ t: 'b', i: 0 }], cam: [{ t: 'b', i: 1 }], belly: [], mode: [{ t: 'b', i: 2 }], reset: [{ t: 'b', i: 3 }], arm: [], pause: [] } })
 };
 function defaultSave() {
   return { coins: 0, xp: 0, owned: ['sparrow'], drone: 'sparrow', color: 0, colorsOwned: [0, 1], ach: {}, missions: {}, chips: [], firstRun: true,
@@ -184,6 +201,10 @@ function deepMerge(base, over) {
 }
 const SAVE = (() => { const s = defaultSave(); try { const raw = localStorage.getItem(SAVE_KEY); if (raw) deepMerge(s, JSON.parse(raw)); } catch (e) {} return s; })();
 const S = SAVE.settings;
+// Hidden debug mode (type "debug" in any menu, or tap the title 7 times): everything unlocked, nothing saved to progress.
+const DBG = () => !!S.debug.on;
+if (!DBG() && !SAVE.owned.includes(SAVE.drone)) SAVE.drone = SAVE.owned[SAVE.owned.length - 1] || 'sparrow';
+if (!DBG() && !SAVE.colorsOwned.includes(SAVE.color)) SAVE.color = 0;
 let saveTimer = 0;
 function persist() { clearTimeout(saveTimer); saveTimer = setTimeout(() => { try { localStorage.setItem(SAVE_KEY, JSON.stringify(SAVE)); } catch (e) {} }, 300); }
 
@@ -227,7 +248,7 @@ function addCoins(n, xp = n) {
   persist();
 }
 function unlock(id) {
-  if (SAVE.ach[id]) return;
+  if (SAVE.ach[id] || DBG()) return;
   const a = ACH.find(x => x.id === id); if (!a) return;
   SAVE.ach[id] = Date.now(); SAVE.coins += a.coins; persist();
   toast(`${a.ic} ${a.name}`, `${a.desc} · +${a.coins} coins`);
@@ -346,11 +367,13 @@ const Input = {
     }
   }
 };
-const KEYMAP = { Space: 'fire', KeyC: 'cam', KeyM: 'mode', KeyR: 'reset', KeyX: 'arm', Escape: 'pause', KeyP: 'pause', KeyV: 'sticks' };
+const KEYMAP = { Space: 'fire', KeyC: 'cam', KeyB: 'belly', KeyM: 'mode', KeyR: 'reset', KeyX: 'arm', Escape: 'pause', KeyP: 'pause', KeyV: 'sticks' };
+let codeBuf = '';
 addEventListener('keydown', e => {
   sfx.unlock();
   const tag = e.target.tagName;
   if (UI.open) {
+    if (e.key?.length === 1) { codeBuf = (codeBuf + e.key.toLowerCase()).slice(-5); if (codeBuf === 'debug') { codeBuf = ''; setDebug(!DBG()); return; } }
     if (tag === 'INPUT' || tag === 'SELECT') { if (e.code === 'Escape') UI.back(); return; }
     if (e.code === 'Escape') { UI.back(); e.preventDefault(); }
     else if (e.code === 'ArrowDown' || e.code === 'ArrowRight') { UI.nav('down'); e.preventDefault(); }
@@ -1515,22 +1538,63 @@ class Zone {
   dispose() { scene.remove(this.m); }
 }
 
+// --------------------------------------------------------- ammo crates
+// Rocket resupply for the combat missions: downed enemies drop a crate (on a parachute when
+// they die in mid-air) and a supply drop parachutes in near you when you run low.
+// Fly through a crate to reload; it stays put until you need it (full racks don't pick it up).
+const crateMats = { box: new THREE.MeshStandardMaterial({ color: 0x4f5d2f, roughness: 0.75 }), band: new THREE.MeshBasicMaterial({ color: 0xffc83d, toneMapped: false }), chute: new THREE.MeshStandardMaterial({ color: 0xff6a00, roughness: 0.85, side: THREE.DoubleSide }), line: new THREE.LineBasicMaterial({ color: 0xd8d8d8 }) };
+const crateGeo = new THREE.BoxGeometry(0.8, 0.5, 0.5), bandGeo = new THREE.BoxGeometry(0.83, 0.13, 0.53), chuteGeo = new THREE.SphereGeometry(1.5, 16, 6, 0, Math.PI * 2, 0, Math.PI * 0.38);
+const chuteLineGeo = (() => { const pts = [], rr = 1.5 * Math.sin(Math.PI * 0.38), ry = 1.6 + 1.5 * Math.cos(Math.PI * 0.38); for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI * 2; pts.push(V3(0, 0.25, 0), V3(Math.cos(a) * rr, ry, Math.sin(a) * rr)); } return new THREE.BufferGeometry().setFromPoints(pts); })();
+const ammoGlow = glowMat(0x3dff8a);
+class AmmoCrate {
+  constructor(p, n, chute = true) {
+    this.kind = 'ammo'; this.p = p.clone(); this.n = n; this.alive = true; this.t = rnd(0, 6); this.landed = false; this.vy = chute ? -2.6 : -7;
+    const g = this.g = new THREE.Group();
+    const box = new THREE.Mesh(crateGeo, crateMats.box); box.castShadow = true; g.add(box, new THREE.Mesh(bandGeo, crateMats.band));
+    const dome = new THREE.Mesh(chuteGeo, crateMats.chute); dome.position.y = 1.6; dome.castShadow = true;
+    this.chute = new THREE.Group(); this.chute.add(dome, new THREE.LineSegments(chuteLineGeo, crateMats.line)); this.chute.visible = chute; g.add(this.chute);
+    this.glow = new THREE.Sprite(ammoGlow); g.add(this.glow);
+    g.position.copy(this.p); scene.add(g);
+  }
+  update(dt) {
+    this.t += dt;
+    if (!this.landed) {
+      this.p.y += this.vy * dt;
+      if (this.chute.visible) { this.p.x += Math.sin(this.t * 1.1) * 0.6 * dt; this.p.z += Math.cos(this.t * 0.9) * 0.6 * dt; }
+      let fl = Grid.roofBelow(this.p.x, this.p.y + 0.3, this.p.z); if (fl < -1) fl = City.WY; // floats on the river
+      if (this.p.y - 0.25 <= fl) { this.p.y = fl + 0.25; this.landed = true; this.chute.visible = false; }
+    }
+    this.g.position.copy(this.p);
+    this.g.rotation.y = this.landed ? this.g.rotation.y + dt * 0.7 : Math.sin(this.t * 0.8) * 0.3;
+    this.glow.scale.setScalar(2.1 + Math.sin(this.t * 5) * 0.5);
+    const q = Game.quad;
+    if (!q.crashed && q.rockets < q.def.rockets && q.p.distanceTo(this.p) < 2.4 + q.def.radius) this.collect(q);
+  }
+  collect(q) {
+    const cap = q.def.rockets, L = Math.ceil(cap / 2), R = Math.floor(cap / 2); let added = 0;
+    while (added < this.n && q.rockets < cap) { if (q.rocketsL < L && (q.rocketsL <= q.rocketsR || q.rocketsR >= R)) q.rocketsL++; else q.rocketsR++; added++; }
+    q.updateMass(); this.alive = false; scene.remove(this.g);
+    sfx.pickup(); sfx.coin(); sparks(this.p, 18, [0.3, 1, 0.5]); flashMsg(`+${added} ROCKETS`);
+  }
+  dispose() { scene.remove(this.g); }
+}
+
 // ------------------------------------------------------------ missions
 const MISSIONS = [
   { id: 'school', ic: '🎓', name: 'Flight School', type: 'school', need: 0, reward: 150, par: [45, 75], desc: 'Learn throttle control: hold position inside each hover marker, then land back on the pad.' },
   { id: 'circuit', ic: '🏁', name: 'Downtown Circuit', type: 'race', track: 'circuit', need: 1, reward: 250, desc: 'Street-level race through 19 gates around the base of the Spire.' },
   { id: 'balloons', ic: '🎈', name: 'Balloon Blitz', type: 'balloons', need: 2, reward: 250, par: [100, 160], desc: 'Pop 15 balloons around downtown. Rockets or props — your call.' },
   { id: 'courier', ic: '📦', name: 'Sky Courier', type: 'courier', need: 4, reward: 350, par: [150, 240], desc: 'Carry packages on a 4 m tether and set them down gently on 3 rooftop pads. Mind the swing!' },
-  { id: 'hornets', ic: '🐝', name: 'Hornet Nest', type: 'hornets', need: 6, reward: 400, par: [110, 180], desc: 'Rogue hornet drones are swarming downtown. Take them down before they take you down.' },
+  { id: 'hornets', ic: '🐝', name: 'Hornet Nest', type: 'hornets', combat: true, need: 6, reward: 400, par: [110, 180], desc: 'Rogue hornet drones are swarming downtown. Every one you down drops a rocket crate — fly through it to reload.' },
   { id: 'skyline', ic: '🌆', name: 'Skyline Dive', type: 'race', track: 'skyline', need: 8, reward: 450, desc: 'Through the Twin Gate, over the Spire, a 170 m vertical dive, and under the suspension bridge.' },
-  { id: 'turrets', ic: '🛡️', name: 'Iron Rooftops', type: 'turrets', need: 10, reward: 550, par: [150, 240], desc: 'Flak turrets guard the rooftops. Destroy all 6 — use cover and lock-on (hold the crosshair on a target).' }
+  { id: 'turrets', ic: '🛡️', name: 'Iron Rooftops', type: 'turrets', combat: true, need: 10, reward: 550, par: [150, 240], desc: 'Flak turrets guard the rooftops. Destroy all 6 — wrecks drop rocket crates. Use cover and lock-on (hold the crosshair on a target).' }
 ];
 const TRACKS = {
   circuit: [[24, 12, -400], [40, 8, -330], [40, 4, -250], [40, 12, -170], [40, 6, -90], [40, 15, 0], [40, 8, 80], [40, 10, 120], [-20, 6, 120], [-80, 14, 120], [-120, 10, 120], [-120, 5, 40], [-120, 18, -40], [-120, 3, -120], [-120, 8, -200], [-120, 6, -280], [-120, 10, -360], [-60, 6, -360], [0, 5, -360]],
   skyline: [[-40, 20, -330], [-40, 45, -220], [-40, 70, -120], [-100, 80, -120], [-160, 81, -106, 0, 0, 1], [-160, 81, -54, 0, 0, 1], [-110, 100, -40], [-40, 160, -40], [-40, 230, 40], [-6, 282, -6], [0, 246, -42], [0, 110, -40, 0, -1, 0], [-40, 15, -40], [-40, 10, 120], [-40, 12, 240], [-10, -4, 320], [40, -4.5, 320, 1, 0, 0, 2.4], [110, -2, 320]]
 };
 const totalStars = () => MISSIONS.reduce((s, m) => s + (SAVE.missions[m.id]?.stars || 0), 0);
-const isUnlocked = m => totalStars() >= m.need;
+const isUnlocked = m => DBG() || totalStars() >= m.need;
 
 const MT = {
   school: {
@@ -1609,6 +1673,7 @@ const MT = {
       G.pads = World.pads.filter(p => p.name === 'Roof pad').sort((a, b) => a.p.distanceTo(h) - b.p.distanceTo(h)).slice(0, 3);
       G.di = 0; G.dropT = 0; G.reload = 0; G.pkgs = [];
       MT.courier.attach(G); MT.courier.paint(G);
+      toast('📷 Belly camera', Input.active === 'keyboard' ? 'Press B to look straight down at the package' : Input.active === 'gamepad' ? 'Press RB (or cycle CAM) to look straight down' : 'Tap CAM to cycle to the belly camera', '#2ee6ff');
     },
     attach(G) {
       const q = G.quad, m = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.36, 0.36), new THREE.MeshStandardMaterial({ color: 0xc68a3c, roughness: 0.8 }));
@@ -1633,7 +1698,7 @@ const MT = {
         const ok = pad && pl.ground && Math.hypot(pl.p.x - pad.p.x, pl.p.z - pad.p.z) < pad.r - 0.3 && Math.abs(pl.p.y - 0.18 - pad.p.y) < 0.3 && pl.v.length() < 1;
         G.dropT = ok ? G.dropT + dt : 0;
         if (G.dropT > 0.7) {
-          sfx.gate(); sfx.coin(); MT.courier.detach(G, true); G.di++; G.dropT = 0; addCoins(20, 20);
+          sfx.gate(); sfx.coin(); MT.courier.detach(G, true); G.di++; G.dropT = 0; if (!DBG()) addCoins(20, 20);
           SAVE.stats.deliveries++; if (SAVE.stats.deliveries >= 10) unlock('courier10');
           if (G.di >= G.pads.length) { G.finish(); return; }
           G.reload = 1.5; MT.courier.paint(G); toast('📦 Package delivered', 'Next package lowering from the cargo bay…', '#3dff8a');
@@ -1658,7 +1723,7 @@ const MT = {
       if (alive === 0) { if (G.wave === 1) { MT.hornets.spawn(G, 5); toast('🐝 Second wave incoming', '5 hornets', '#ff3d7f'); } else G.finish(); }
     },
     objective(G) { const k = G.ents.filter(e => !e.alive).length; return `Hornets ${k}/8 · Wave ${G.wave}/2`; },
-    markers(G) { return nearestAlive(G, '#ff3d4d', 'HORNET'); }
+    markers(G) { return nearestAlive(G, '#ff3d4d', 'HORNET', 'hornet').concat(ammoMarker(G)); }
   },
   turrets: {
     setup(G) {
@@ -1671,7 +1736,7 @@ const MT = {
     },
     update(G) { if (G.ents.filter(e => e.kind === 'turret').every(e => !e.alive)) G.finish(); },
     objective(G) { return `Turrets ${G.ents.filter(e => e.kind === 'turret' && !e.alive).length}/${G.total}`; },
-    markers(G) { return nearestAlive(G, '#ff6a00', 'FLAK', 'turret'); }
+    markers(G) { return nearestAlive(G, '#ff6a00', 'FLAK', 'turret').concat(ammoMarker(G)); }
   },
   free: {
     setup(G) { World.chips.forEach((p, i) => { if (!SAVE.chips.includes(i)) G.ents.push(new Chip(p, i)); }); },
@@ -1680,6 +1745,11 @@ const MT = {
     markers(G) { return nearestAlive(G, '#2ee6ff', 'CHIP'); }
   }
 };
+function ammoMarker(G) { // point at the nearest crate once the racks are half empty
+  const q = G.quad; if (q.rockets >= q.def.rockets / 2) return [];
+  let best = null, bd = 1e9; for (const c of G.crates) { const d = c.p.distanceToSquared(q.p); if (d < bd) { bd = d; best = c; } }
+  return best ? [{ p: best.p, c: '#3dff8a', l: 'AMMO' }] : [];
+}
 function nearestAlive(G, c, l, kind) {
   let best = null, bd = 1e9;
   for (const e of G.ents) { if (!e.alive || (kind && e.kind !== kind)) continue; const d = e.p.distanceToSquared(G.quad.p); if (d < bd) { bd = d; best = e; } }
@@ -1689,7 +1759,7 @@ function nearestAlive(G, c, l, kind) {
 // ---------------------------------------------------------------- game
 const _bl = V3(), _aim = V3(), _tq = new THREE.Quaternion(), XAX = V3(1, 0, 0);
 const Game = {
-  state: 'menu', paused: false, phase: 'fly', mode: S.mode, quad: new Quad(), view: null, ents: [], proj: [], prevP: V3(),
+  state: 'menu', paused: false, phase: 'fly', mode: S.mode, quad: new Quad(), view: null, ents: [], proj: [], crates: [], airT: 0, prevP: V3(),
   t: 0, clock: 0, crashes: 0, penalty: 0, mis: null, free: false, pilot: V3(), lq: 100, lqT: 0, lockT: 0, lockTarget: null, locked: false,
   fireCD: 0, crashT: 0, padT: 0, flightClean: 0, altHist: [], flip: [0, 0], tookDamage: false, armT: 0,
   setDrone() {
@@ -1727,6 +1797,7 @@ const Game = {
     this.type?.cleanup?.(this);
     for (const e of this.ents) e.dispose?.(); this.ents = [];
     for (const p of this.proj) scene.remove(p.s); this.proj = [];
+    for (const c of this.crates) c.dispose(); this.crates = []; this.airT = 0;
     Rockets.clear(); Fx.clear(); Smoke.clear();
     this.extraCollide = null; this.quad.payload = null;
     sfx.lock(0);
@@ -1753,6 +1824,7 @@ const Game = {
     if (Input.take('pause')) { if (this.state === 'play') this.pause(!this.paused); }
     if (this.state !== 'play' || this.paused) { Input.act = {}; return; }
     if (Input.take('cam')) Cam.cycle();
+    if (Input.take('belly')) Cam.belly();
     if (Input.take('mode')) { const ms = ['ACRO', 'ANGLE', 'ALT']; this.setMode(ms[(ms.indexOf(this.mode) + 1) % 3]); }
     if (Input.take('sticks')) { S.stickViz = !S.stickViz; persist(); }
     if (Input.take('arm')) { const q = this.quad; if (!q.crashed && this.phase === 'fly') { q.armed = !q.armed; sfx.beep(q.armed ? 1200 : 500, 0.1); flashMsg(q.armed ? 'ARMED' : 'DISARMED'); } }
@@ -1796,13 +1868,30 @@ const Game = {
     if (e.kind === 'balloon') { SAVE.stats.balloons++; if (SAVE.stats.balloons >= 50) unlock('balloons50'); }
     if (e.kind === 'hornet') { SAVE.stats.hornets++; if (SAVE.stats.hornets >= 25) unlock('hornets25'); }
     if (e.kind === 'turret') SAVE.stats.turrets++;
-    if (e.kind === 'chip') {
+    if (this.mis.combat && (e.kind === 'hornet' || e.kind === 'turret')) this.dropAmmo(e.kind === 'turret' ? V3(e.p.x, e.p.y + 2.5, e.p.z) : e.p, e.kind !== 'turret');
+    if (e.kind === 'chip' && DBG()) toast('💾 Data chip (debug)', 'not saved', '#2ee6ff');
+    else if (e.kind === 'chip') {
       if (!SAVE.chips.includes(e.idx)) SAVE.chips.push(e.idx);
       addCoins(25, 25); toast(`💾 Data chip ${SAVE.chips.length}/${World.chips.length}`, '+25 coins', '#2ee6ff');
       if (SAVE.chips.length >= World.chips.length) unlock('chips');
     }
     if (this.lockTarget === e) { this.lockTarget = null; this.lockT = 0; }
     persist();
+  },
+  dropAmmo(p, chute = true) {
+    this.crates.push(new AmmoCrate(p, Math.max(3, Math.round(this.quad.def.rockets * 0.4)), chute));
+    if (this.crates.length > 8) this.crates.shift().dispose();
+  },
+  airdrop() { // parachute a crate in ahead of the pilot, clear of buildings
+    const q = this.quad; _e.setFromQuaternion(q.q, 'YXZ');
+    for (let k = 0; k < 18; k++) {
+      const a = _e.y + (k ? rnd(-1.6, 1.6) : 0), d = rnd(22, 38), p = V3(q.p.x - Math.sin(a) * d, 0, q.p.z - Math.cos(a) * d);
+      const roof = Grid.roofBelow(p.x, 1e4, p.z); if (k < 14 && roof > q.p.y - 3) continue; // prefer open air at your height over tall roofs
+      p.y = Math.max(q.p.y, roof) + 15;
+      if (Grid.inside(p, 3) || !Grid.los(q.p, p)) continue;
+      this.dropAmmo(p, true); toast('📦 Supply drop inbound', 'Fly through the crate to reload rockets', '#3dff8a'); return true;
+    }
+    return false;
   },
   blast(p0, radius, opts) {
     const p = _bl.copy(p0), q = this.quad;
@@ -1834,6 +1923,10 @@ const Game = {
   update(dt) {
     const q = this.quad;
     this.clock += dt; this.fireCD -= dt;
+    if (DBG()) {
+      if (S.debug.god) q.god = Math.max(q.god, 0.25);
+      if (S.debug.ammo && q.rockets < q.def.rockets) { q.rocketsL = Math.ceil(q.def.rockets / 2); q.rocketsR = Math.floor(q.def.rockets / 2); q.updateMass(); }
+    }
     if (this.phase === 'countdown') {
       const before = Math.ceil(this.cd - 0.5); this.cd -= dt; const now = Math.ceil(this.cd - 0.5);
       if (now !== before && now > 0) { setCenter(String(now)); sfx.beep(660, 0.15); }
@@ -1846,6 +1939,11 @@ const Game = {
       if (this.crashT > 4) this.respawn(false);
     }
     for (const e of this.ents) if (e.alive) e.update(dt);
+    for (let i = this.crates.length - 1; i >= 0; i--) { const c = this.crates[i]; c.update(dt); if (!c.alive) this.crates.splice(i, 1); }
+    if (this.mis.combat && this.phase === 'fly' && !q.crashed) {
+      this.airT -= dt;
+      if (this.airT <= 0 && !this.crates.length && q.rockets <= Math.floor(q.def.rockets / 4)) this.airT = this.airdrop() ? 15 : 2;
+    }
     this.updateProj(dt); Rockets.update(dt);
     if (this.phase === 'fly') this.type.update(this, dt);
     // reload / pit stop on any helipad
@@ -1909,28 +2007,35 @@ const Game = {
     if (this.free) return;
     const id = this.mis.id, time = this.t + this.penalty, par = this.par || this.mis.par;
     const stars = time <= par[0] ? 3 : time <= par[1] ? 2 : 1;
-    const rec = SAVE.missions[id] || { stars: 0, best: 0, plays: 0 };
-    const first = rec.stars === 0, newBest = !rec.best || time < rec.best;
+    const dbg = DBG(), rec = SAVE.missions[id] || { stars: 0, best: 0, plays: 0 };
+    const first = rec.stars === 0 && !dbg, newBest = !dbg && (!rec.best || time < rec.best);
     let coins = Math.round(this.mis.reward * [0.5, 0.75, 1][stars - 1] * (first ? 1.5 : 1)) + this.earned;
-    if (this.mis.id === 'school') unlock('school');
-    if (['hornets', 'turrets'].includes(id) && !this.tookDamage) unlock('flawless');
-    rec.stars = Math.max(rec.stars, stars); if (newBest) rec.best = time; rec.plays++;
-    SAVE.missions[id] = rec;
-    addCoins(coins - this.earned, coins);
-    Platform.submitScore(id, Math.round(time * 1000));
-    if (MISSIONS.every(m => (SAVE.missions[m.id]?.stars || 0) === 3)) unlock('allstars');
+    if (dbg) coins = 0;
+    else {
+      if (this.mis.id === 'school') unlock('school');
+      if (['hornets', 'turrets'].includes(id) && !this.tookDamage) unlock('flawless');
+      rec.stars = Math.max(rec.stars, stars); if (newBest) rec.best = time; rec.plays++;
+      SAVE.missions[id] = rec;
+      addCoins(coins - this.earned, coins);
+      Platform.submitScore(id, Math.round(time * 1000));
+      if (MISSIONS.every(m => (SAVE.missions[m.id]?.stars || 0) === 3)) unlock('allstars');
+    }
     persist();
     setCenter('MISSION COMPLETE'); sfx.achieve();
-    setTimeout(() => { setCenter(''); if (this.state === 'play') { this.state = 'results'; Touch.refresh(); sfx.silence(); UI.results({ mis: this.mis, time, stars, coins, first, newBest, best: rec.best, crashes: this.crashes, penalty: this.penalty }); } }, 1800);
+    setTimeout(() => { setCenter(''); if (this.state === 'play') { this.state = 'results'; Touch.refresh(); sfx.silence(); UI.results({ mis: this.mis, time, stars, coins, first, newBest, best: rec.best || time, crashes: this.crashes, penalty: this.penalty, dbg }); } }, 1800);
   }
 };
 
 // --------------------------------------------------------------- camera
+const CAM_NAMES = { fpv: 'FPV CAM', chase: 'CHASE CAM', down: 'BELLY CAM', los: 'LINE OF SIGHT' }, _eB = new THREE.Euler();
 const Cam = {
-  mode: 'fpv', shake: 0, pos: V3(), look: V3(), q: new THREE.Quaternion(), tq: new THREE.Quaternion(), menuT: 0, jit: V3(),
+  mode: 'fpv', prev: 'fpv', shake: 0, pos: V3(), look: V3(), q: new THREE.Quaternion(), tq: new THREE.Quaternion(), menuT: 0, jit: V3(),
   tilt() { return this.tq.setFromAxisAngle(XAX, S.camTilt * DEG); },
   reset() { const q = Game.quad; this.pos.copy(q.p).add(V3(0, 1, 3).applyQuaternion(q.q)); },
-  cycle() { const m = ['fpv', 'chase', 'los']; this.mode = m[(m.indexOf(this.mode) + 1) % 3]; flashMsg({ fpv: 'FPV CAM', chase: 'CHASE CAM', los: 'LINE OF SIGHT' }[this.mode]); },
+  cycle() { const m = ['fpv', 'chase', 'down', 'los']; this.mode = m[(m.indexOf(this.mode) + 1) % m.length]; flashMsg(CAM_NAMES[this.mode]); },
+  belly() { if (this.mode === 'down') this.mode = this.prev === 'down' ? 'fpv' : this.prev; else { this.prev = this.mode; this.mode = 'down'; } flashMsg(CAM_NAMES[this.mode]); },
+  // gimballed camera under the frame: looks straight down, top of the picture = the drone's heading
+  bellyPose(c, Q) { _eB.setFromQuaternion(Q.q, 'YXZ'); c.position.copy(Q.p); c.position.y -= Q.def.radius * 0.35 + 0.03; c.quaternion.setFromEuler(_eB.set(-Math.PI / 2, _eB.y, 0, 'YXZ')); },
   update(dt) {
     const Q = Game.quad, view = Game.view;
     if (Game.state === 'menu' || !view) {
@@ -1938,7 +2043,7 @@ const Cam = {
       camera.position.set(Math.sin(this.menuT) * 330, 150 + Math.sin(this.menuT * 2.3) * 30, Math.cos(this.menuT) * 330 - 60);
       camera.lookAt(0, 90, 0); this.setFov(60); this.focus = camera.position; return;
     }
-    view.g.visible = this.mode !== 'fpv';
+    view.g.visible = this.mode === 'chase' || this.mode === 'los';
     updateQuadMesh(view, Q, dt);
     if (this.mode === 'fpv') {
       camera.position.copy(Q.p).add(_t1.set(0, 0.03, -0.05).applyQuaternion(Q.q));
@@ -1946,6 +2051,8 @@ const Cam = {
       const j = (Q.vib * 0.004 + Q.wash * 0.006 + (Q.armed ? 0.0006 : 0)) * (Q.crashed ? 0 : 1);
       this.jit.set(rnd(-j, j), rnd(-j, j), 0); camera.rotateX(this.jit.x); camera.rotateY(this.jit.y);
       this.setFov(S.fov);
+    } else if (this.mode === 'down') {
+      this.bellyPose(camera, Q); this.setFov(78);
     } else if (this.mode === 'chase') {
       _e.setFromQuaternion(Q.q, 'YXZ');
       const k = Q.def.arm * 6, back = _t1.set(0, 0.3 + k * 0.35, 0.85 + k).applyAxisAngle(UPV, _e.y);
@@ -1965,6 +2072,30 @@ const Cam = {
     this.focus = Q.p;
   },
   setFov(f) { if (Math.abs(camera.fov - f) > 0.01) { camera.fov = f; camera.updateProjectionMatrix(); PSys.scale.value = innerHeight / (2 * Math.tan(f * DEG / 2)); } }
+};
+// Belly-cam picture-in-picture: a second small render of the down camera (Sky Courier, or always if enabled).
+const pipCam = new THREE.PerspectiveCamera(70, 4 / 3, 0.05, 3000);
+const Pip = {
+  rect: null,
+  layout() {
+    const q = Game.quad;
+    const on = Game.state === 'play' && !UI.open && Cam.mode !== 'down' && S.pip !== 'off' && (S.pip === 'always' || (Game.mis?.type === 'courier' && !!q.payload));
+    if (!on) return (this.rect = null);
+    const W = innerWidth, w = Math.round(clamp(W * 0.2, 150, 280));
+    if (document.body.classList.contains('touchmode')) return (this.rect = { x: Math.round((W - w) / 2), y: 58, w, h: Math.round(w * 0.62) });
+    const R = W < 760 ? 58 : 82; return (this.rect = { x: W - w - 14, y: 2 * R + 30, w, h: Math.round(w * 0.75) });
+  },
+  render() {
+    const r = this.rect; if (!r) return;
+    Cam.bellyPose(pipCam, Game.quad);
+    if (Math.abs(pipCam.aspect - r.w / r.h) > 1e-3) { pipCam.aspect = r.w / r.h; pipCam.updateProjectionMatrix(); }
+    const vis = Game.view.g.visible, au = renderer.shadowMap.autoUpdate, y = innerHeight - r.y - r.h;
+    Game.view.g.visible = false; renderer.shadowMap.autoUpdate = false; // reuse this frame's shadow map
+    renderer.setScissorTest(true); renderer.setScissor(r.x, y, r.w, r.h); renderer.setViewport(r.x, y, r.w, r.h);
+    renderer.render(scene, pipCam);
+    renderer.setScissorTest(false); renderer.setViewport(0, 0, innerWidth, innerHeight);
+    renderer.shadowMap.autoUpdate = au; Game.view.g.visible = vis;
+  }
 };
 let flashTimer = 0;
 function setCenter(html) { $('#center').innerHTML = html; }
@@ -1986,9 +2117,10 @@ const HUD = {
     const g = this.g, W = this.w, H = this.h; g.clearRect(0, 0, W, H);
     this.osd(dt);
     if (Game.state !== 'play') return;
-    const q = Game.quad, fpv = Cam.mode === 'fpv', small = W < 760;
+    const q = Game.quad, fpv = Cam.mode === 'fpv', down = Cam.mode === 'down', small = W < 760;
+    const pl = q.payload, pkgH = pl ? Math.max(0, pl.p.y - 0.2 - Grid.roofBelow(pl.p.x, pl.p.y, pl.p.z)) : null;
     g.lineCap = 'round'; g.lineJoin = 'round';
-    if (fpv && (Game.lq < 55 || q.crashed)) {
+    if ((fpv || down) && (Game.lq < 55 || q.crashed)) {
       g.save(); g.globalAlpha = q.crashed ? 0.5 : clamp((55 - Game.lq) / 55, 0, 0.92);
       g.translate(-Math.random() * 192, -Math.random() * 192); g.fillStyle = this.noise; g.fillRect(0, 0, W + 192, H + 192); g.restore();
       g.fillStyle = 'rgba(255,255,255,.08)'; for (let i = 0; i < 6; i++) g.fillRect(0, Math.random() * H, W, rnd(2, 14));
@@ -2009,6 +2141,11 @@ const HUD = {
         }
       }
       line([cx - 14, cy, cx - 5, cy]); line([cx + 5, cy, cx + 14, cy]); line([cx, cy - 14, cx, cy - 5]); line([cx, cy + 5, cx, cy + 14]);
+    } else if (down && !q.crashed) {
+      g.strokeStyle = 'rgba(255,255,255,.8)'; g.lineWidth = 1.5; g.beginPath(); g.arc(cx, cy, 22, 0, 7); g.stroke();
+      line([cx - 36, cy, cx - 26, cy]); line([cx + 26, cy, cx + 36, cy]); line([cx, cy + 26, cx, cy + 36]);
+      g.fillStyle = '#ffd23d'; g.beginPath(); g.moveTo(cx, cy - 34); g.lineTo(cx + 6, cy - 25); g.lineTo(cx - 6, cy - 25); g.closePath(); g.fill(); // heading tick
+      text(`BELLY CAM · AGL ${Math.max(0, q.agl - q.def.radius).toFixed(1)} m${pkgH !== null ? ` · PACKAGE ${pkgH.toFixed(1)} m` : ''}`, cx, cy + 54, '#cfe3ff');
     } else if (!q.crashed) {
       const a = this.proj(_hw.copy(q.p).addScaledVector(Game.aimDir(_hd), 60), PA);
       if (!a.behind) { g.strokeStyle = 'rgba(255,255,255,.85)'; g.lineWidth = 1.5; g.beginPath(); g.arc(a.x, a.y, 9, 0, 7); g.stroke(); }
@@ -2020,6 +2157,20 @@ const HUD = {
       const s = this.proj(e.p, PA); if (s.behind || s.x < 0 || s.x > W || s.y < 0 || s.y > H) continue;
       const col = e.kind === 'balloon' ? '#ff9ad0' : '#ff4040', k = clamp(260 / d, 5, 14);
       line([s.x - k, s.y - k - 4, s.x, s.y - 4, s.x + k, s.y - k - 4], col, 1.5);
+    }
+    for (const c of Game.crates) {
+      const d = c.p.distanceTo(q.p); if (d > 320) continue;
+      const s = this.proj(c.p, PA); if (s.behind || s.x < 0 || s.x > W || s.y < 0 || s.y > H) continue;
+      const k = clamp(220 / d, 5, 12); line([s.x - k, s.y, s.x + k, s.y], '#3dff8a', 2); line([s.x, s.y - k, s.x, s.y + k], '#3dff8a', 2);
+      if (d < 140) text('AMMO', s.x, s.y - k - 6, '#3dff8a', 'center', 10);
+    }
+    const pr = Pip.rect;
+    if (pr) {
+      g.strokeStyle = 'rgba(0,0,0,.8)'; g.lineWidth = 4; g.strokeRect(pr.x, pr.y, pr.w, pr.h);
+      g.strokeStyle = 'rgba(200,225,255,.9)'; g.lineWidth = 1.5; g.strokeRect(pr.x, pr.y, pr.w, pr.h);
+      const px = pr.x + pr.w / 2, py = pr.y + pr.h / 2; line([px - 7, py, px + 7, py], '#fff', 1.2); line([px, py - 7, px, py + 7], '#fff', 1.2);
+      text('BELLY CAM', pr.x + 6, pr.y + 14, '#cfe3ff', 'left', 10);
+      if (pkgH !== null) text(`PKG ${pkgH.toFixed(1)} m`, pr.x + pr.w - 6, pr.y + pr.h - 7, '#ffc83d', 'right', 10);
     }
     for (const m of Game.markers || []) {
       const s = this.proj(m.p, PA), d = m.p.distanceTo(q.p), lbl = `${m.l} ${d < 1000 ? Math.round(d) + 'm' : (d / 1000).toFixed(1) + 'km'}`;
@@ -2048,6 +2199,7 @@ const HUD = {
     g.translate(mx, my); g.rotate(th); g.scale(sc, sc); g.translate(-q.p.x, -q.p.z);
     g.globalAlpha = 0.9; g.drawImage(World.map, -700, -700, 1400, 1400); g.globalAlpha = 1;
     for (const e of Game.ents) if (e.alive) { g.fillStyle = e.kind === 'chip' ? '#2ee6ff' : e.kind === 'balloon' ? '#ff9ad0' : '#ff3030'; g.beginPath(); g.arc(e.p.x, e.p.z, 4 / sc, 0, 7); g.fill(); }
+    g.fillStyle = '#3dff8a'; for (const c of Game.crates) g.fillRect(c.p.x - 3.5 / sc, c.p.z - 3.5 / sc, 7 / sc, 7 / sc);
     for (const m of Game.markers || []) { g.strokeStyle = m.c; g.lineWidth = 2.5 / sc; g.beginPath(); g.arc(m.p.x, m.p.z, 7 / sc, 0, 7); g.stroke(); }
     if (Game.gates?.length) { g.fillStyle = '#ff3d7f'; for (let i = Game.gi + 1; i < Game.gates.length; i++) { const p = Game.gates[i].p; g.fillRect(p.x - 2 / sc, p.z - 2 / sc, 4 / sc, 4 / sc); } }
     g.fillStyle = '#fff'; g.beginPath(); g.arc(Game.pilot.x, Game.pilot.z, 3 / sc, 0, 7); g.fill();
@@ -2087,6 +2239,82 @@ const HUD = {
   }
 };
 
+// --------------------------------------------------- hangar 3D preview
+// Its own small WebGL canvas: a turntable of the drone you're looking at (drag to spin) plus
+// still thumbnails for the hangar cards, so players can see what they're saving up for.
+const Preview = {
+  r: null, scene: null, cam: null, model: null, key: '', yaw: 0.7, t: 0, drag: null, w: 0, h: 0, thumbs: {},
+  init() {
+    const r = this.r = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    r.setPixelRatio(Math.min(devicePixelRatio, 2)); r.toneMapping = THREE.ACESFilmicToneMapping; r.setClearColor(0x000000, 0);
+    r.domElement.className = 'pvcv';
+    const sc = this.scene = new THREE.Scene();
+    // tiny "photo studio" for reflections: dark room with a few soft boxes
+    const studio = new THREE.Scene(), lightbox = (c, x, y, z, w, h) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: new THREE.Color(c).multiplyScalar(3), side: THREE.DoubleSide })); m.position.set(x, y, z); m.lookAt(0, 0, 0); studio.add(m); };
+    studio.add(new THREE.Mesh(new THREE.BoxGeometry(20, 20, 20), new THREE.MeshBasicMaterial({ color: 0x0b0f1a, side: THREE.BackSide })));
+    lightbox(0xffffff, 0, 8, 2, 8, 5); lightbox(0x9fdcff, -8, 2, 4, 4, 6); lightbox(0xd6c4ff, 7, 3, -5, 4, 6);
+    const pm = new THREE.PMREMGenerator(r); sc.environment = pm.fromScene(studio, 0.04).texture; pm.dispose();
+    sc.add(new THREE.HemisphereLight(0xdde8ff, 0x1a1d28, 0.9));
+    const key = new THREE.DirectionalLight(0xffffff, 2.2); key.position.set(2.5, 4, 3); sc.add(key);
+    const rim = new THREE.DirectionalLight(0x9d7bff, 2); rim.position.set(-3, 1.5, -3); sc.add(rim);
+    this.ped = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 1.02, 0.07, 56), new THREE.MeshStandardMaterial({ color: 0x141a28, roughness: 0.45, metalness: 0.5 })); this.ped.position.y = -0.56; sc.add(this.ped);
+    this.ring = new THREE.Mesh(new THREE.TorusGeometry(0.97, 0.012, 8, 72).rotateX(Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x2ee6ff, toneMapped: false })); this.ring.position.y = -0.52; sc.add(this.ring);
+    this.cam = new THREE.PerspectiveCamera(30, 1.6, 0.05, 50);
+    const el = r.domElement;
+    el.addEventListener('pointerdown', e => { this.drag = { x: e.clientX, id: e.pointerId, y0: this.yaw }; try { el.setPointerCapture(e.pointerId); } catch (er) {} e.preventDefault(); });
+    el.addEventListener('pointermove', e => { if (this.drag?.id === e.pointerId) this.yaw = this.drag.y0 + (e.clientX - this.drag.x) * 0.012; });
+    const up = e => { if (this.drag?.id === e.pointerId) this.drag = null; };
+    el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+  },
+  build(k, ci) {
+    const d = DRONES[k], col = COLORS[ci] || COLORS[0];
+    const v = makeQuadMesh(d, ci === 0 ? d.frame : col.c, col.led);
+    v.g.scale.setScalar(0.95 / (d.arm * 1.05 + d.propR)); // every drone fills the stage; real size is in the specs
+    for (const p of v.props) p.disc.visible = false;
+    return v;
+  },
+  drop(v) { this.scene.remove(v.g); v.g.traverse(o => { o.geometry?.dispose(); o.material?.dispose(); }); },
+  aim(cam, aspect, hw = 1.15, hh = 0.62, cy = -0.12) { // back off until hw × hh (half extents) fits, from 17° above
+    const t = Math.tan(cam.fov * DEG / 2), d = Math.max(hw / (t * aspect), hh / t), el = 0.3;
+    cam.aspect = aspect; cam.position.set(0, cy + Math.sin(el) * d, Math.cos(el) * d); cam.lookAt(0, cy, 0); cam.updateProjectionMatrix();
+  },
+  show(k, ci, mount) {
+    if (!mount) return;
+    if (!this.r) this.init();
+    const key = k + ':' + ci;
+    if (key !== this.key) {
+      if (this.model) this.drop(this.model);
+      this.model = this.build(k, ci); this.scene.add(this.model.g); this.key = key;
+      this.ring.material.color.setHex((COLORS[ci] || COLORS[0]).led);
+    }
+    mount.appendChild(this.r.domElement); this.w = 0; this.tick(0); // draw now so the canvas never shows a stale frame
+  },
+  tick(dt) {
+    if (!this.r || !this.model || !this.r.domElement.isConnected) return;
+    const p = this.r.domElement.parentElement, w = p.clientWidth, h = p.clientHeight;
+    if (!w || !h) return;
+    if (w !== this.w || h !== this.h) { this.w = w; this.h = h; this.r.setSize(w, h, false); this.aim(this.cam, w / h); }
+    this.t += dt; if (!this.drag) this.yaw += dt * 0.45;
+    const g = this.model.g; g.rotation.set(Math.sin(this.t * 0.9) * 0.04, this.yaw, Math.sin(this.t * 0.7) * 0.05); g.position.y = Math.sin(this.t * 1.6) * 0.04;
+    for (const pr of this.model.props) { pr.ang += (pr.motor % 2 ? 1 : -1) * dt * 9; pr.grp.rotation.y = pr.ang; }
+    this.r.render(this.scene, this.cam);
+  },
+  thumb(k, ci) {
+    const key = k + ':' + ci; if (this.thumbs[key]) return this.thumbs[key];
+    if (!this.r) this.init();
+    const v = this.build(k, ci); v.g.rotation.y = 0.75; this.scene.add(v.g);
+    if (this.model) this.model.g.visible = false;
+    this.ped.visible = this.ring.visible = false;
+    const cam = new THREE.PerspectiveCamera(30, 1.6, 0.05, 50); this.aim(cam, 1.6, 0.9, 0.46, 0.03);
+    const pr = this.r.getPixelRatio(); this.r.setPixelRatio(1); this.r.setSize(320, 200, false);
+    this.r.render(this.scene, cam);
+    const url = this.thumbs[key] = this.r.domElement.toDataURL('image/webp', 0.9);
+    this.drop(v); if (this.model) this.model.g.visible = true; this.ped.visible = this.ring.visible = true;
+    this.r.setPixelRatio(pr); this.w = 0; // next tick restores the turntable size
+    return url;
+  }
+};
+
 // ---------------------------------------------------------------- menus
 const fmtSet = (p, v) => {
   v = +v;
@@ -2104,6 +2332,17 @@ function droneStats(d) {
   const m = d.mass + 2 * POD_MASS + d.rockets * ROCKET_MASS, cH = Math.sqrt(m * G / (4 * d.tmax)), imax = 3.2 * d.tmax * (6 / d.cells) * Math.sqrt(0.0635 / d.propR);
   const amps = 0.8 + 4 * imax * cH ** 2.6;
   return { twr: 4 * d.tmax / (m * G), top: Math.min(d.vp * 0.75, Math.sqrt(4 * d.tmax * 0.9 / (0.5 * RHO * d.cdTop))) * 3.6, mins: d.cap * capMul() / 1000 / amps * 60, agility: 4 * d.arm * Math.SQRT1_2 * 2 * d.tmax * cH / d.I[0] / Math.sqrt(d.tau / 0.02), auw: m };
+}
+function setDebug(on) {
+  S.debug.on = on;
+  if (!on) { // drop back to things you actually own
+    if (!SAVE.owned.includes(SAVE.drone)) SAVE.drone = SAVE.owned[SAVE.owned.length - 1] || 'sparrow';
+    if (!SAVE.colorsOwned.includes(SAVE.color)) SAVE.color = 0;
+  }
+  persist(); sfx.beep(on ? 1400 : 500, 0.12);
+  toast(on ? '🛠 Debug mode ON' : '🛠 Debug mode OFF', on ? 'All missions, drones &amp; paints unlocked · progress not saved' : 'Back to your normal save', '#ff8a2e');
+  if (Game.state === 'play') { if (Game.paused) UI.pause(); }
+  else if (Game.state === 'menu') { if (UI.el.querySelector('.hangar')) { UI.hv = SAVE.drone; UI.pc = SAVE.color; UI.hangar(); } else UI.main(); }
 }
 const UI = {
   el: $('#ui'), open: false, backFn: null, wizard: null, tab: 'controls', setBack: null,
@@ -2164,19 +2403,25 @@ const UI = {
       case 'next': { const i = MISSIONS.findIndex(x => x.id === Game.mis.id), n = MISSIONS[i + 1]; return n && isUnlocked(n) ? Game.start(n.id) : (Game.quit(), m.missions()); }
       case 'quit': return Game.quit();
       case 'claim': return m.claim();
+      case 'look': m.hv = arg; return m.hangar();
       case 'buy': {
         const d = DRONES[arg];
         if (SAVE.coins < d.price) { toast('Not enough coins', `${d.name} costs ${d.price} — fly missions & claim daily rewards`, '#ff4d4d'); return; }
-        SAVE.coins -= d.price; SAVE.owned.push(arg); SAVE.drone = arg; sfx.coin(); persist();
+        SAVE.coins -= d.price; SAVE.owned.push(arg); SAVE.drone = arg; sfx.coin(); sfx.achieve(); persist();
+        toast(`🛩 ${d.name} joins your hangar`, 'Selected — go fly it!', '#3dff8a');
         if (DRONE_ORDER.every(k => SAVE.owned.includes(k))) unlock('hangar');
         return m.hangar();
       }
       case 'sel': SAVE.drone = arg; persist(); return m.hangar();
-      case 'color': {
+      case 'color': { const i = +arg; m.pc = i; if (DBG() || SAVE.colorsOwned.includes(i)) { SAVE.color = i; persist(); } return m.hangar(); }
+      case 'buycol': {
         const i = +arg, c = COLORS[i];
-        if (!SAVE.colorsOwned.includes(i)) { if (SAVE.coins < c.price) { toast('Not enough coins', `${c.name} costs ${c.price}`, '#ff4d4d'); return; } SAVE.coins -= c.price; SAVE.colorsOwned.push(i); sfx.coin(); }
-        SAVE.color = i; persist(); return m.hangar();
+        if (SAVE.coins < c.price) { toast('Not enough coins', `${c.name} costs ${c.price}`, '#ff4d4d'); return; }
+        SAVE.coins -= c.price; SAVE.colorsOwned.push(i); SAVE.color = i; m.pc = i; sfx.coin(); persist(); return m.hangar();
       }
+      case 'title': { const now = performance.now(); m.taps = now - (m.tapT || 0) < 1200 ? (m.taps || 0) + 1 : 1; m.tapT = now; if (m.taps >= 7) { m.taps = 0; setDebug(!DBG()); } return; }
+      case 'dbgoff': return setDebug(false);
+      case 'dbgwin': Game.pause(false); return Game.finish();
       case 'preset': S.gp = GP_PRESETS[arg](); persist(); toast('Controller preset applied', arg === 'rc' ? 'RC transmitter (USB joystick mode)' : 'Standard gamepad, Mode 2'); return m.settings('controls');
       case 'wiz': return m.startWiz();
       case 'wiznext': return m.wizNext();
@@ -2205,8 +2450,8 @@ const UI = {
     const gp = Input.gp.idx >= 0 ? `🎮 ${Input.gp.id.slice(0, 38)}` : 'Keyboard, gamepad / RC radio (USB) or touch';
     const daily = this.dailyAvail() ? (() => { const y = new Date(); y.setDate(y.getDate() - 1); const st = SAVE.daily.last === todayStr(y) ? SAVE.daily.streak + 1 : 1, day = ((st - 1) % 7) + 1; return `<div class="card" style="flex-direction:row;align-items:center;margin-top:14px;border-color:var(--gold)"><span class="ic">🎁</span><div class="sp"><b>Daily reward — day ${day} of 7</b><p style="margin:2px 0">Come back every day: rewards grow, day 7 pays a bonus.</p></div><button class="btn pri" data-a="claim">Claim +${75 + 25 * (day - 1) + (day === 7 ? 200 : 0)}</button></div>`; })() : '';
     this.show(`
-      <div class="row" style="align-items:flex-end"><div><h1>ROTOR CITY</h1><p style="margin-top:8px">Quadcopter flight &amp; strike simulator — real rotor physics, rockets, and a city to tear through.</p></div></div>
-      <div style="margin-top:14px">${this.header()}</div>${daily}
+      <div class="row" style="align-items:flex-end"><div><h1 data-a="title">ROTOR CITY</h1><p style="margin-top:8px">Quadcopter flight &amp; strike simulator — real rotor physics, rockets, and a city to tear through.</p></div></div>
+      <div style="margin-top:14px">${this.header()}</div>${daily}${this.dbgCard()}
       <div class="menu-main">
         <button class="btn pri" data-a="missions">▶ Missions</button>
         <button class="btn" data-a="free">🕊 Free Flight</button>
@@ -2217,11 +2462,17 @@ const UI = {
       </div>
       <div class="row" style="margin-top:14px"><p class="sp">Flying: <b>${DRONES[SAVE.drone].name}</b> · Mode: <b>${S.mode === 'ALT' ? 'ALT HOLD' : S.mode}</b> · ${gp}</p>${matchMedia('(pointer:coarse)').matches ? '<button class="btn sm" data-a="fs">⛶ Fullscreen</button>' : ''}</div>`);
   },
+  dbgCard() {
+    if (!DBG()) return '';
+    return `<div class="card" style="margin-top:14px;border-color:#ff8a2e;cursor:default"><div class="row"><b>🛠 Debug mode</b><span class="sp"></span><button class="btn sm" data-a="dbgoff">Turn off</button></div>
+      <p style="margin:0">Every mission, drone and paint is unlocked. Coins, stars, data chips and achievements aren't saved while this is on. Pause menu → <b>Complete mission</b> jumps to the results screen.</p>
+      ${chk('Invincible', 'debug.god')}${chk('Infinite rockets', 'debug.ammo')}</div>`;
+  },
   missions() {
     this.backFn = () => this.main();
     const ts = totalStars();
     const cards = MISSIONS.map(m => {
-      const r = SAVE.missions[m.id], ok = ts >= m.need;
+      const r = SAVE.missions[m.id], ok = isUnlocked(m);
       return `<button class="card ${ok ? '' : 'locked'}" ${ok ? `data-a="start:${m.id}"` : 'disabled'}><div class="row"><span class="ic">${m.ic}</span><span class="sp"></span>${ok ? starStr(r?.stars || 0) : `🔒 ${m.need} ⭐`}</div><b>${m.name}</b><p style="margin:0">${m.desc}</p><small style="color:var(--dim)">${r?.best ? 'Best ' + fmtTime(r.best) : ok ? 'Not flown yet' : `Earn ${m.need - ts} more stars to unlock`}</small></button>`;
     }).join('');
     this.show(`<div class="row"><h2 class="sp" style="margin:0">Missions</h2><button class="btn sm" data-a="main">← Back</button></div><div style="margin:12px 0">${this.header()}</div><div class="grid">${cards}</div>`);
@@ -2235,17 +2486,35 @@ const UI = {
   },
   hangar() {
     this.backFn = () => this.main();
-    const all = DRONE_ORDER.map(k => droneStats(DRONES[k])), mx = key => Math.max(...all.map(s => s[key]));
-    const bar = (l, v, m, txt) => `<div class="sbar"><span>${l}</span><div class="bar" title="${txt}"><i style="width:${clamp(v / m, 0.05, 1) * 100}%"></i></div></div>`;
-    const cards = DRONE_ORDER.map((k, i) => {
-      const d = DRONES[k], own = SAVE.owned.includes(k), on = SAVE.drone === k, s = all[i];
-      return `<button class="card ${on ? 'sel' : ''}" data-a="${own ? 'sel' : 'buy'}:${k}"><div class="row"><b>${d.name}</b><span class="sp"></span><small style="color:var(--dim)">${d.cls}</small></div><p style="margin:0">${d.desc}</p>
-        ${bar('Thrust/weight', s.twr, mx('twr'), s.twr.toFixed(1))}${bar('Agility', s.agility, mx('agility'))}${bar('Top speed', s.top, mx('top'))}${bar('Endurance', s.mins, mx('mins'))}${bar('Durability', d.crash, 12)}
-        <small style="color:var(--dim)">AUW ${(s.auw * 1000).toFixed(0)} g · TWR ${s.twr.toFixed(1)}:1 · ~${s.top.toFixed(0)} km/h · ${d.rockets} rockets · ${d.cells}S ${d.cap} mAh</small>
-        <div class="row">${own ? (on ? '<span class="stat" style="color:var(--good)">✓ Selected</span>' : '<span class="stat">Owned — select</span>') : `<span class="stat coin">🪙 ${d.price}</span>`}</div></button>`;
+    // re-rendering in place (preview clicks) keeps the scroll position and focused button
+    const pn = this.el.querySelector('.hangar') ? this.el.querySelector('.panel') : null, st = pn ? pn.scrollTop : 0, fa = pn ? document.activeElement?.dataset?.a : null;
+    if (!pn) { this.hv = SAVE.drone; this.pc = SAVE.color; }
+    const dbg = DBG(), owns = x => dbg || SAVE.owned.includes(x), hasCol = i => dbg || SAVE.colorsOwned.includes(i);
+    const k = this.hv, d = DRONES[k], ci = this.pc, col = COLORS[ci];
+    const all = DRONE_ORDER.map(x => droneStats(DRONES[x])), mx = key => Math.max(...all.map(v => v[key])), s = all[DRONE_ORDER.indexOf(k)];
+    const bar = (l, v, m, txt = '') => `<div class="sbar"><span>${l}</span><div class="bar" title="${txt}"><i style="width:${clamp(v / m, 0.05, 1) * 100}%"></i></div></div>`;
+    const need = (price, what) => `<div class="sp"><div class="row"><span class="stat coin">🪙 ${SAVE.coins} / ${price}</span><small style="color:var(--dim)">${price - SAVE.coins} more to unlock ${what}</small></div><div class="bar" style="margin-top:8px"><i style="width:${clamp(SAVE.coins / price, 0, 1) * 100}%"></i></div></div>`;
+    const act = SAVE.drone === k ? '<span class="stat" style="color:var(--good)">✓ Your current drone</span>'
+      : owns(k) ? `<button class="btn pri" data-a="sel:${k}">Fly the ${d.name}</button>`
+      : SAVE.coins >= d.price ? `<button class="btn pri" data-a="buy:${k}">Buy for 🪙 ${d.price}</button>` : need(d.price, 'it — fly missions &amp; claim daily rewards');
+    const cards = DRONE_ORDER.map(x => {
+      const dd = DRONES[x], tag = SAVE.drone === x ? '<span style="color:var(--good)">✓ Flying</span>' : owns(x) ? 'Owned' : `<span class="coin">🔒 ${dd.price}</span>`;
+      return `<button class="card dcard ${x === k ? 'pv' : ''}" data-a="look:${x}"><img src="${Preview.thumb(x, SAVE.color)}" alt="" draggable="false"><b>${dd.name}</b><small style="color:var(--dim)">${dd.cls} · ${tag}</small></button>`;
     }).join('');
-    const sw = COLORS.map((c, i) => `<button class="swatch ${SAVE.color === i ? 'on' : ''} ${SAVE.colorsOwned.includes(i) ? '' : 'lock'}" style="background:#${c.c.toString(16).padStart(6, '0')};box-shadow:0 0 0 3px #${c.led.toString(16).padStart(6, '0')}44 inset" data-a="color:${i}" title="${c.name}${SAVE.colorsOwned.includes(i) ? '' : ' — ' + c.price + ' coins'}"></button>`).join('');
-    this.show(`<div class="row"><h2 class="sp" style="margin:0">Hangar</h2><button class="btn sm" data-a="main">← Back</button></div><div style="margin:12px 0">${this.header()}</div><div class="grid">${cards}</div><h3>Frame color &amp; LEDs</h3><div class="row">${sw}</div>`);
+    const hex = c => '#' + c.toString(16).padStart(6, '0');
+    const sw = COLORS.map((c, i) => `<button class="swatch ${SAVE.color === i ? 'on' : ''} ${i === ci && i !== SAVE.color ? 'pv' : ''} ${hasCol(i) ? '' : 'lock'}" style="background:${hex(c.c)};box-shadow:0 0 0 3px ${hex(c.led)}44 inset" data-a="color:${i}" title="${c.name}${hasCol(i) ? '' : ' — ' + c.price + ' coins'}"></button>`).join('');
+    const colAct = ci === SAVE.color || hasCol(ci) ? `<small style="color:var(--dim)">Paint: <b style="color:var(--text)">${col.name}</b></small>`
+      : `<small style="color:var(--dim)">Previewing <b style="color:var(--text)">${col.name}</b></small>` + (SAVE.coins >= col.price ? `<button class="btn sm pri" data-a="buycol:${ci}">Buy paint 🪙 ${col.price}</button>` : need(col.price, 'this paint'));
+    this.show(`<div class="hangar"><div class="row"><h2 class="sp" style="margin:0">Hangar</h2><button class="btn sm" data-a="main">← Back</button></div><div style="margin:12px 0">${this.header()}</div>
+      <div class="show"><div class="pvbox"><div id="pvMount"></div><span class="pvtag">${owns(k) ? '' : '🔒 '}${d.cls}</span><span class="pvhint">⟲ drag to spin</span></div>
+        <div class="pvinfo"><b style="font-size:22px">${d.name}</b><p style="margin:0">${d.desc}</p>
+          ${bar('Thrust/weight', s.twr, mx('twr'), s.twr.toFixed(1))}${bar('Agility', s.agility, mx('agility'))}${bar('Top speed', s.top, mx('top'))}${bar('Endurance', s.mins, mx('mins'))}${bar('Durability', d.crash, 12)}
+          <small style="color:var(--dim)">${Math.round(d.arm * 2000)} mm frame · AUW ${(s.auw * 1000).toFixed(0)} g · TWR ${s.twr.toFixed(1)}:1 · ~${s.top.toFixed(0)} km/h · ${d.rockets} rockets · ${d.cells}S ${d.cap} mAh${d.coax ? ' · 8 motors' : ''}</small>
+          <div class="row" style="margin-top:6px">${act}</div></div></div>
+      <div class="grid dgrid">${cards}</div>
+      <h3>Frame color &amp; LEDs</h3><div class="row">${sw}</div><div class="row" style="margin-top:8px">${colAct}</div></div>`);
+    Preview.show(k, ci, $('#pvMount'));
+    if (pn) { this.el.querySelector('.panel').scrollTop = st; const f = fa && this.el.querySelector(`[data-a="${fa}"]`); if (f) f.focus({ preventScroll: true }); }
   },
   achievements() {
     this.backFn = () => this.main();
@@ -2262,16 +2531,18 @@ const UI = {
         <tr><td>${k('A D')}</td><td>Yaw left / right</td></tr>
         <tr><td>${k('↑ ↓ ← →')} or ${k('I K J L')}</td><td>Pitch forward/back, roll left/right</td></tr>
         <tr><td>${k('Space')}</td><td>Fire rocket (hold the crosshair on a target to lock on → homing)</td></tr>
-        <tr><td>${k('C')} ${k('M')} ${k('R')} ${k('X')} ${k('V')} ${k('Esc')}</td><td>Camera · flight mode · respawn · arm/disarm · stick overlay · pause</td></tr></table>
-      <h3>Gamepad / RC transmitter</h3><p>Any controller the browser sees works — Xbox/PlayStation pads, and RC radios (RadioMaster, Jumper, FrSky…) plugged in by USB in <b>joystick mode</b>. Default pad layout: left stick throttle/yaw, right stick pitch/roll, A/RT fire, B camera, X mode, Y respawn, LB arm, Start pause. For RC radios use <b>Settings → Controls → Setup wizard</b> to map and calibrate the sticks.</p>
+        <tr><td>${k('C')} ${k('B')}</td><td>Cycle camera (FPV → chase → belly → line of sight) · jump straight to the belly cam and back</td></tr>
+        <tr><td>${k('M')} ${k('R')} ${k('X')} ${k('V')} ${k('Esc')}</td><td>Flight mode · respawn · arm/disarm · stick overlay · pause</td></tr></table>
+      <h3>Gamepad / RC transmitter</h3><p>Any controller the browser sees works — Xbox/PlayStation pads, and RC radios (RadioMaster, Jumper, FrSky…) plugged in by USB in <b>joystick mode</b>. Default pad layout: left stick throttle/yaw, right stick pitch/roll, A/RT fire, B camera, RB belly cam, X mode, Y respawn, LB arm, Start pause. For RC radios use <b>Settings → Controls → Setup wizard</b> to map and calibrate the sticks.</p>
       <h3>Touch</h3><p>Left pad: throttle (stays where you leave it, except ALT HOLD) + yaw. Right pad: pitch + roll. Buttons for fire, camera, mode and reset. Play in landscape.</p>
+      <h3>Looking down &amp; resupply</h3><p>The <b>belly cam</b> is a gimballed camera under the frame that always looks straight down — perfect for lowering packages onto a pad while ALT HOLD keeps you level. In Sky Courier a small belly-cam inset appears automatically while you carry cargo (Settings → Graphics). Land on any <b>H</b> pad for a pit stop; in combat missions downed enemies drop <b>rocket crates</b> and a supply drop parachutes in when you run low — fly through a crate to reload.</p>
       <h3>Physics you will feel</h3><p>Motor spin-up lag · thrust falls with climb speed · prop wash shake when descending into your own wake · ground effect cushion · wind gusts stronger above rooftops · battery voltage sag (less punch as it drains) · rockets add weight and shift the centre of gravity · damaged props vibrate and lose thrust · video link breaks up behind buildings and far away.</p>
       <h3>Expo &amp; rates</h3><p>All sticks use Betaflight-style RC rate / super rate / expo curves — soft around center for precision, fast at the ends for flips. Tune them live in <b>Settings → Rates</b>.</p>`);
   },
   pause() {
     this.backFn = () => Game.pause(false);
     this.show(`<h2>Paused</h2><p>${Game.mis.name} — ${Game.type.objective(Game)}</p><div class="menu-main" style="grid-template-columns:1fr">
-      <button class="btn pri" data-a="resume">▶ Resume</button><button class="btn" data-a="restart">↻ Restart</button><button class="btn" data-a="settings">⚙ Settings</button><button class="btn pink" data-a="quit">⏏ Quit to menu</button></div>`, true);
+      <button class="btn pri" data-a="resume">▶ Resume</button><button class="btn" data-a="restart">↻ Restart</button>${DBG() && !Game.free ? '<button class="btn" data-a="dbgwin" style="border-color:#ff8a2e">⏭ Complete mission (debug)</button>' : ''}<button class="btn" data-a="settings">⚙ Settings</button><button class="btn pink" data-a="quit">⏏ Quit to menu</button></div>`, true);
   },
   results(r) {
     this.backFn = () => Game.quit();
@@ -2279,7 +2550,7 @@ const UI = {
     this.show(`<h2 style="text-align:center">${r.mis.ic} ${r.mis.name}</h2><div class="big-stars">${'★'.repeat(r.stars)}<i>${'★'.repeat(3 - r.stars)}</i></div>
       <table style="margin:12px 0"><tr><td>Time</td><td><b>${fmtTime(r.time)}</b>${r.newBest ? ' <span class="coin">NEW BEST!</span>' : ''}</td></tr>
       <tr><td>Crashes / resets</td><td>${r.crashes} (+${r.penalty}s)</td></tr><tr><td>Best</td><td>${fmtTime(r.best)}</td></tr>
-      <tr><td>Reward</td><td class="coin"><b>+${r.coins} coins</b>${r.first ? ' (first clear bonus)' : ''}</td></tr></table>
+      <tr><td>Reward</td><td class="coin"><b>+${r.coins} coins</b>${r.first ? ' (first clear bonus)' : ''}</td></tr></table>${r.dbg ? '<p style="text-align:center;color:#ff8a2e">🛠 Debug run — progress not saved</p>' : ''}
       <div class="row"><button class="btn" data-a="retry">↻ Retry</button>${next ? `<button class="btn pri" data-a="next" ${isUnlocked(next) ? '' : 'disabled'}>Next: ${next.name} ${isUnlocked(next) ? '' : '🔒'}</button>` : ''}<span class="sp"></span><button class="btn pink" data-a="quit">Menu</button></div>`, true);
   },
   settings(tab) {
@@ -2310,7 +2581,7 @@ const UI = {
         ${sel('Damage', 'damage', [['arcade', 'Arcade (tough)'], ['normal', 'Normal'], ['realistic', 'Realistic (fragile)']])}${chk('Prop wash / vortex ring', 'propwash')}`;
     } else if (tab === 'graphics') {
       body = `${sel('Quality', 'quality', [['low', 'Low (no shadows)'], ['med', 'Medium'], ['high', 'High']])}${sel('Time of day', 'tod', [['day', 'Day'], ['dusk', 'Dusk'], ['night', 'Night']])}
-        ${sl('FPV field of view', 'fov', 60, 120, 1)}${sl('FPV camera uptilt', 'camTilt', 0, 50, 1)}${chk('Stick overlay', 'stickViz')}`;
+        ${sl('FPV field of view', 'fov', 60, 120, 1)}${sl('FPV camera uptilt', 'camTilt', 0, 50, 1)}${sel('Belly-cam inset', 'pip', [['auto', 'Auto (while carrying cargo)'], ['always', 'Always'], ['off', 'Off']])}${chk('Stick overlay', 'stickViz')}`;
     } else {
       body = `${sl('Master volume', 'vol.master', 0, 1, 0.05)}${sl('Motors', 'vol.motor', 0, 1, 0.05)}${sl('Effects', 'vol.sfx', 0, 1, 0.05)}`;
     }
@@ -2436,8 +2707,9 @@ function frame(now) {
     const d = camera.position.distanceTo(q.p), att = Cam.mode === 'fpv' ? 1 : clamp(1 / (1 + d / 6), 0.02, 1);
     sfx.motors(q.om, q.armed || q.om[0] > 0.05, att, Cam.mode === 'los' ? 0 : _t1.subVectors(q.v, q.wind).length(), q.wash);
   } else if (!silent) { sfx.silence(); silent = true; }
-  HUD.draw(dt); Touch.draw(); UI.tick(dt);
+  Pip.layout(); HUD.draw(dt); Touch.draw(); UI.tick(dt);
   renderer.render(scene, camera);
+  Pip.render(); Preview.tick(dt);
 }
 addEventListener('resize', resize);
 addEventListener('gamepadconnected', e => { toast('🎮 Controller connected', e.gamepad.id.slice(0, 48)); if (UI.open && !Game.paused && Game.state === 'menu' && !UI.backFn) UI.main(); });

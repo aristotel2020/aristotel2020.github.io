@@ -148,6 +148,15 @@ body.touchmode #soundHint{right:auto;left:50%;transform:translateX(-50%);top:64p
 #tCam{right:calc(72px + env(safe-area-inset-right))}
 #tMode{right:calc(130px + env(safe-area-inset-right))}
 #hangar .panel{width:min(680px,100%)}
+.mcard.pv{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.hvbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:9px 12px;margin:8px 0 10px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.05);font-size:13px}
+.hvbar.look{border-color:rgba(255,181,71,.55);background:rgba(255,181,71,.08)}
+.hvbar .sbtn{margin-left:auto}
+.hvbar .hvneed{flex:1 1 100%}
+.dbgbox{flex-wrap:wrap;border-color:rgba(255,154,74,.7);background:rgba(255,154,74,.1)}
+.dbgbox .dbgrow{display:flex;flex-wrap:wrap;gap:6px;flex:1 1 100%}
+.dbgbox .dbgrow .sbtn{margin-left:0}
+.title[data-act]{cursor:default;user-select:none;-webkit-user-select:none}
 @media (min-width:901px){#hangar.overlay{justify-content:flex-start;padding-left:3vw}}
 #dmg{position:fixed;inset:0;pointer-events:none;opacity:0;background:radial-gradient(ellipse at center,rgba(255,0,0,0) 45%,rgba(255,40,20,.6) 100%)}
 @media (max-width:560px){.title{font-size:34px}.row2{grid-template-columns:1fr}label.f{grid-template-columns:90px 1fr 40px}}
@@ -185,11 +194,12 @@ body.touchmode #soundHint{right:auto;left:50%;transform:translateX(-50%);top:64p
 
 <div id="menu" class="overlay">
   <div class="panel narrow">
-    <div class="title">SKYRIDGE</div>
+    <div class="title" data-act="title">SKYRIDGE</div>
     <div class="sub">Open-world flight: missions, rockets and five aircraft to earn</div>
     <div class="chips" id="menuChips"></div>
     <div id="padChip" class="chip">🎮 <span>Press any button on your controller</span></div>
     <div id="dailyBox"></div>
+    <div id="dbgBox"></div>
     <button class="btn" data-act="fullscreen" id="fsBtn" hidden>⛶ Play full screen<small>Hides the browser bars. Turn your phone sideways to fly</small></button>
     <div style="height:6px"></div>
     <button class="btn primary" data-act="missions">Missions<small id="menuMisSub">Rings, rockets, landings and combat</small></button>
@@ -244,6 +254,7 @@ body.touchmode #soundHint{right:auto;left:50%;transform:translateX(-50%);top:64p
     <div class="sub" id="pauseInfo"></div>
     <button class="btn primary" data-act="resume">Resume</button>
     <button class="btn" data-act="restart">Restart this flight</button>
+    <button class="btn" data-act="dbgwin" id="dbgWinBtn" hidden style="border-color:#ff9a4a">⏭ Complete mission (debug)<small>Skip to the results screen. Nothing is saved</small></button>
     <button class="btn" data-act="mode">Flight mode: <span class="modeName"></span><small class="modeSub"></small></button>
     <div class="row2">
       <button class="btn" data-act="controls">Controller &amp; curves</button>
@@ -440,6 +451,7 @@ const DEFAULT_SETTINGS = {
   assists: { autoRudder: false, invertPitch: false },
   quality: 'medium', timeOfDay: 'midday', wind: 'light', units: 'aviation', volume: 0.7, fov: 65, showInputs: true,
   flightMode: 'natural', mouseSens: 1, touch: 'auto',
+  debug: { on: false, god: false, ammo: false },
 };
 function deepMerge(base, over) {
   const out = Array.isArray(base) ? base.slice() : { ...base };
@@ -460,6 +472,8 @@ function loadSettings() {
   return s;
 }
 let S = loadSettings();
+// Hidden debug mode (type "debug" in any menu, or tap the SKYRIDGE title 7 times): everything unlocked, nothing saved to progress.
+const DBG = () => !!(S.debug && S.debug.on);
 function saveSettings() { try { localStorage.setItem(STORE_KEY, JSON.stringify(S)); } catch (e) { } }
 function loadBest() { try { return JSON.parse(localStorage.getItem(BEST_KEY) || '{}') || {}; } catch (e) { return {}; } }
 function saveBest(b) { try { localStorage.setItem(BEST_KEY, JSON.stringify(b)); } catch (e) { } }
@@ -475,7 +489,8 @@ const SAVE = (() => { try { return deepMerge(defaultSave(), JSON.parse(localStor
 let persistTimer = 0;
 function persist() { clearTimeout(persistTimer); persistTimer = setTimeout(() => { try { localStorage.setItem(SAVE_KEY, JSON.stringify(SAVE)); } catch (e) { } }, 300); }
 const fmtPts = n => Math.round(n).toLocaleString('en-US');
-function addPoints(n) { n = Math.round(n); if (!n) return; SAVE.points += n; persist(); }
+function addPoints(n) { n = Math.round(n); if (!n || DBG()) return; SAVE.points += n; persist(); }
+const ownsPlane = k => DBG() || SAVE.owned.includes(k), ownsPaint = i => DBG() || SAVE.paintsOwned.includes(i);
 const ACH = [
   { id: 'first_flight', ic: '🛫', name: 'Wheels Up', desc: 'Take off from a runway', pts: 50 },
   { id: 'solo', ic: '🎓', name: 'Licensed Pilot', desc: 'Complete First Solo', pts: 100 },
@@ -498,7 +513,7 @@ const ACH = [
   { id: 'streak7', ic: '📅', name: 'Dedicated', desc: 'Claim the daily reward 7 days in a row', pts: 300 },
 ];
 function unlock(id) {
-  if (SAVE.ach[id]) return;
+  if (SAVE.ach[id] || DBG()) return;
   const a = ACH.find(x => x.id === id); if (!a) return;
   SAVE.ach[id] = Date.now(); addPoints(a.pts);
   toast(`${a.ic} Achievement: ${a.name} · +${a.pts} points`); sfx.fanfare();
@@ -532,7 +547,7 @@ const PAINTS = [
   { name: 'Black and Gold', body: '#15161a', accent: '#e8b923', dark: '#050506', price: 0, ach: 'aceall' },
 ];
 function paintFor(id) { const sp = AIRCRAFT[id], p = PAINTS[SAVE.paint[id] || 0] || PAINTS[0]; return p.body ? { body: p.body, accent: p.accent, dark: p.dark, reg: sp.paint.reg } : sp.paint; }
-if (!AIRCRAFT[SAVE.plane] || !SAVE.owned.includes(SAVE.plane)) SAVE.plane = 'sr1';
+if (!AIRCRAFT[SAVE.plane] || !ownsPlane(SAVE.plane)) SAVE.plane = 'sr1';
 
 const QUALITY = {
   low: { pr: 1, R: 4, treeR: 1, treeSp: 30, shadow: 0, clouds: 45 },
@@ -2903,6 +2918,7 @@ function showOverlay(id) {
 function pushOverlay(id) { uiStack.push(id); renderOverlays(); }
 function popOverlay() {
   const top = uiStack.pop();
+  if (top === 'hangar') hangarLeave();
   if (top === 'controls' || top === 'settings') saveSettings();
   if (!uiStack.length) { if (G.state === 'paused') { G.state = 'flying'; } else if (G.state === 'menu') uiStack.push('menu'); }
   renderOverlays();
@@ -2933,12 +2949,17 @@ function doAction(act) {
   switch (act) {
     case 'free': case 'air': startFree(act); break;
     case 'missions': pushOverlay('missions'); break;
-    case 'hangar': pushOverlay('hangar'); break;
+    case 'hangar': hangarView = SAVE.plane; pushOverlay('hangar'); break;
     case 'ach': pushOverlay('ach'); break;
     case 'mission': openMission(arg); break;
     case 'fly': { const [id, d] = arg.split(':'); startMission(id, false, +d); break; }
     case 'next': { const i = MISSIONS.findIndex(m => m.id === arg); const n = MISSIONS[i + 1]; if (n && isUnlocked(n)) openMission(n.id); else { goMenu(); pushOverlay('missions'); } break; }
     case 'plane': hangarPlane(arg); break;
+    case 'buy': hangarBuy(arg); break;
+    case 'title': { const now = performance.now(); titleTaps = now - titleTapT < 1200 ? titleTaps + 1 : 1; titleTapT = now; if (titleTaps >= 7) { titleTaps = 0; setDebug(!DBG()); } break; }
+    case 'dbgtog': S.debug[arg] = !S.debug[arg]; saveSettings(); updateMenuInfo(); nav.focus(); break;
+    case 'dbgoff': setDebug(false); break;
+    case 'dbgwin': if (G.ms && !G.ms.done) { G.state = 'flying'; showOverlay(null); finishMission({ stars: 3, time: G.ms.t, lines: [['Debug', 'skipped to the end']] }); } break;
     case 'paint': hangarPaint(+arg); break;
     case 'claim': claimDaily(); break;
     case 'mode': setFlightMode(S.flightMode === 'arcade' ? 'natural' : 'arcade'); break;
@@ -2963,8 +2984,8 @@ function placeParked() {
 }
 // let a parked plane settle onto its gear
 function settlePlane() { for (let i = 0; i < 480; i++) plane.step(1 / 240, { roll: 0, pitch: 0, yaw: 0, throttle: 0, brake: 1 }, env); plane.events.length = 0; }
-function goMenu() { endMission(); clearEnts(); placeParked(); settlePlane(); G.state = 'menu'; persist(); showOverlay('menu'); }
-function pauseGame() { if (G.state !== 'flying') return; G.state = 'paused'; $('#pauseInfo').textContent = (G.ms ? misName(G.ms) : 'Free flight') + ' · ' + plane.sp.name; showOverlay('pause'); }
+function goMenu() { endMission(); clearEnts(); if (plane.sp !== AIRCRAFT[SAVE.plane]) setAircraft(SAVE.plane); placeParked(); settlePlane(); G.state = 'menu'; persist(); showOverlay('menu'); }
+function pauseGame() { if (G.state !== 'flying') return; G.state = 'paused'; $('#dbgWinBtn').hidden = !(DBG() && G.ms && !G.ms.done); $('#pauseInfo').textContent = (G.ms ? misName(G.ms) : 'Free flight') + ' · ' + plane.sp.name; showOverlay('pause'); }
 function setFlightMode(m) {
   S.flightMode = m; saveSettings();
   plane.setArcade(m === 'arcade'); aimFromPlane();
@@ -2982,7 +3003,9 @@ function updateMenuInfo() {
   const done = MISSIONS.filter(m => SAVE.missions[m.id] && SAVE.missions[m.id].stars).length;
   $('#menuMisSub').textContent = `${done} of ${MISSIONS.length} complete · rings, rockets, landings and combat`;
   $('#fsBtn').hidden = !(navigator.maxTouchPoints > 0 && document.fullscreenEnabled && !document.fullscreenElement);
-  const d = dailyInfo();
+  const d = DBG() ? null : dailyInfo(); // keep the real daily reward for a normal session
+  $('#dbgBox').innerHTML = DBG() ? `<div class="daily dbgbox"><span>🛠 <b>Debug mode</b> · every mission, level, aircraft and paint unlocked. Points, stars and achievements aren't saved</span>
+    <span class="dbgrow"><button class="sbtn${S.debug.god ? ' accent' : ''}" data-act="dbgtog:god">No damage: ${S.debug.god ? 'ON' : 'off'}</button><button class="sbtn${S.debug.ammo ? ' accent' : ''}" data-act="dbgtog:ammo">Infinite rockets: ${S.debug.ammo ? 'ON' : 'off'}</button><button class="sbtn" data-act="dbgoff">Turn debug off</button></span></div>` : '';
   $('#dailyBox').innerHTML = d ? `<div class="daily">🎁 <span><b>Daily reward</b> · day ${d.day} of 7</span><button class="sbtn accent" data-act="claim">Claim +${d.pts}</button></div>` : '';
 }
 
@@ -3229,6 +3252,7 @@ function applyQuality() {
 }
 
 /* keyboard */
+let codeBuf = '';
 window.addEventListener('keydown', e => {
   keys.add(e.code);
   Touch.use(false);
@@ -3239,6 +3263,7 @@ window.addEventListener('keydown', e => {
   if (e.repeat) return;
   const top = topOverlay();
   if (top) {
+    if (e.key && e.key.length === 1) { codeBuf = (codeBuf + e.key.toLowerCase()).slice(-5); if (codeBuf === 'debug') { codeBuf = ''; setDebug(!DBG()); return; } }
     if (e.code === 'Escape') { if (top === 'pause') { G.state = 'flying'; showOverlay(null); } else if (top === 'crash') goMenu(); else if (top !== 'menu' && top !== 'result') popOverlay(); }
     if (e.code === 'Enter' && top === 'crash') restartFlight();
     return;
@@ -3530,7 +3555,7 @@ function flakBurst(p) {
   const d = plane.pos.distanceTo(p); if (d < 32) damagePlane(38 * (1 - d / 32));
 }
 function damagePlane(n) {
-  if (plane.crashed || G.state !== 'flying' || n <= 0) return;
+  if (plane.crashed || G.state !== 'flying' || n <= 0 || (DBG() && S.debug.god)) return;
   plane.hp -= n; if (G.ms) G.ms.tookDamage = true;
   G.dmgFlash = Math.max(G.dmgFlash, clamp(n / 30, 0.35, 0.9)); sfx.hit();
   if (plane.hp <= 0) { plane.hp = 0; explode(plane.pos, 1.3, { noBlast: true }); plane.crash('Shot down'); }
@@ -3724,7 +3749,7 @@ class Beacon {
   update(dt) { if (!this.alive) return; this.gem.rotation.y += dt * 1.5; if (!plane.crashed && plane.pos.distanceTo(this.p) < 32 * plane.size) this.collect(); }
   collect() {
     this.alive = false; scene.remove(this.g);
-    if (!SAVE.beacons.includes(this.idx)) SAVE.beacons.push(this.idx);
+    if (!SAVE.beacons.includes(this.idx) && !DBG()) SAVE.beacons.push(this.idx);
     addPoints(25); sfx.coin(); sfx.chime(); msg(`Beacon ${SAVE.beacons.length} / ${BEACONS.length} · +25 points`, '#8ff0ff', 2.5);
     if (SAVE.beacons.length >= BEACONS.length) unlock('beacons');
   }
@@ -3830,10 +3855,10 @@ const MISSIONS = [
   ] },
 ];
 const totalStars = () => MISSIONS.reduce((s, m) => s + ((SAVE.missions[m.id] && SAVE.missions[m.id].stars) || 0), 0);
-const isUnlocked = m => totalStars() >= m.need;
+const isUnlocked = m => DBG() || totalStars() >= m.need;
 const recKey = (id, d) => d ? id + '@' + d : id;
 const recOf = (id, d = 0) => SAVE.missions[recKey(id, d)] || {};
-const levelOpen = (m, d) => !d || !!recOf(m.id, d - 1).stars;
+const levelOpen = (m, d) => !d || DBG() || !!recOf(m.id, d - 1).stars;
 const misName = ms => ms.mis.name + (ms.diff ? ' · ' + DIFFS[ms.diff].name : '');
 const starStr = n => '★'.repeat(n) + `<i>${'★'.repeat(3 - n)}</i>`;
 const rwNum = hd => String(Math.round(wrap360(hd) / 10) % 36 || 36).padStart(2, '0');
@@ -4069,7 +4094,7 @@ function startMission(id, keep = false, diff = 0) {
 let levelsFor = null;
 function openMission(id) {
   const m = MISSIONS.find(x => x.id === id); if (!m) return;
-  if (!m.levels || !recOf(id).stars) { startMission(id); return; }
+  if (!m.levels || (!recOf(id).stars && !DBG())) { startMission(id); return; }
   levelsFor = m; pushOverlay('levels');
   nav.idx = m.levels.reduce((top, L, d) => levelOpen(m, d) ? d + 1 : top, 1); nav.focus(); // starts on the hardest open level (Back comes first)
 }
@@ -4081,18 +4106,18 @@ function endMission() {
 function finishMission(res) {
   const ms = G.ms; if (!ms || ms.done) return;
   ms.done = true;
-  const mis = ms.mis, key = recKey(mis.id, ms.diff), rec = SAVE.missions[key] || { stars: 0, best: 0, plays: 0 }, ok = res.stars > 0, harder = mis.levels && mis.levels[ms.diff + 1];
+  const mis = ms.mis, key = recKey(mis.id, ms.diff), dbg = DBG(), rec = dbg ? { ...(SAVE.missions[key] || { stars: 0, best: 0, plays: 0 }) } : SAVE.missions[key] || { stars: 0, best: 0, plays: 0 }, ok = res.stars > 0, harder = mis.levels && mis.levels[ms.diff + 1];
   let pts = 0, first = false, newBest = false;
-  if (ok) {
+  if (ok && !dbg) {
     first = !rec.stars;
     pts = Math.round(mis.reward * DIFFS[ms.diff].pay * [0.5, 0.75, 1][res.stars - 1] * (first ? 1.5 : 1));
     rec.stars = Math.max(rec.stars, res.stars);
     if (res.time != null && (!rec.best || res.time < rec.best)) { newBest = !!rec.best; rec.best = res.time; }
     if (res.score != null && (!rec.score || res.score > rec.score)) { newBest = !!rec.score; rec.score = res.score; }
   }
-  rec.plays = (rec.plays || 0) + 1; SAVE.missions[key] = rec;
+  if (!dbg) { rec.plays = (rec.plays || 0) + 1; SAVE.missions[key] = rec; }
   addPoints(pts);
-  if (ok) {
+  if (ok && !dbg) {
     if (mis.id === 'solo') unlock('solo');
     if (mis.id === 'flak' && !ms.tookDamage) unlock('flawless');
     if (MISSIONS.every(m => recOf(m.id).stars === 3)) unlock('allstars');
@@ -4107,8 +4132,9 @@ function finishMission(res) {
   $('#resultBody').innerHTML = `<div class="bigstars">${starStr(res.stars)}</div>${res.main || ''}` +
     (newBest ? '<div style="text-align:center;margin-bottom:8px;font-weight:700;color:var(--good)">New personal best!</div>' : '') +
     (ok && first && harder ? `<div style="text-align:center;margin-bottom:8px;font-weight:700;color:var(--accent)">🔓 ${DIFFS[ms.diff + 1].name} unlocked: ${harder.note}</div>` : '') +
+    (dbg ? '<div style="text-align:center;margin-bottom:8px;font-weight:700;color:#ff9a4a">🛠 Debug run: progress not saved</div>' : '') +
     (res.lines || []).map(([k, v]) => `<div class="stat"><span>${k}</span><b>${v}</b></div>`).join('') +
-    `<div class="stat"><span>Points earned</span><b style="color:#ffd27a">◆ ${fmtPts(pts + ms.earned)}${first && ok ? ' · first-clear bonus' : ''}</b></div>` +
+    `<div class="stat"><span>Points earned</span><b style="color:#ffd27a">◆ ${fmtPts(dbg ? 0 : pts + ms.earned)}${first && ok ? ' · first-clear bonus' : ''}</b></div>` +
     `<div class="stat"><span>Your points</span><b>◆ ${fmtPts(SAVE.points)}</b></div>`;
   $('#resultBtns').innerHTML = `<button class="btn primary" data-act="restart">${ok ? 'Fly it again' : 'Try again'}</button>` +
     (ok && harder ? `<button class="btn" data-act="fly:${mis.id}:${ms.diff + 1}">Try ${DIFFS[ms.diff + 1].name}<small>${harder.note}</small></button>` : '') +
@@ -4135,7 +4161,7 @@ function updateRearm(dt) {
 }
 function onTouchdown(fpm, rw) {
   if (rw && fpm < 600) {
-    if (!SAVE.fields.includes(rw.a.code)) { SAVE.fields.push(rw.a.code); persist(); if (SAVE.fields.length >= AIRPORTS.length) unlock('allfields'); }
+    if (!SAVE.fields.includes(rw.a.code) && !DBG()) { SAVE.fields.push(rw.a.code); persist(); if (SAVE.fields.length >= AIRPORTS.length) unlock('allfields'); }
     if (fpm < 120) unlock('butter');
     if (!G.ms && fpm < 300 && G.time - G.lastPts > 45) { G.lastPts = G.time; const p = fpm < 120 ? 40 : 20; addPoints(p); msg(`+${p} points for a smooth landing`, '#ffd27a', 2.5); }
   }
@@ -4178,47 +4204,80 @@ function aircraftStats(k) {
   const climb = Math.max(0, (p.thrust(Vc, rho, 1) - tr.thrust) * Vc / (p.mass * 9.81));
   return (_statCache[k] = { top: lo * KT, climb: climb * FPM });
 }
+// Clicking a card shows that aircraft on the runway. Owned ones become yours to fly straight away;
+// the rest are only previewed until you press Buy. Leaving the hangar parks your own aircraft again.
+let hangarView = null, titleTaps = 0, titleTapT = 0;
+function hangarShow(id) { setAircraft(id); placeParked(); settlePlane(); }
+function hangarFocus(act) { buildHangarUI(); const i = nav.items().findIndex(e => e.dataset.act === act); if (i >= 0) nav.idx = i; nav.focus(); }
 function hangarPlane(id) {
-  const sp = AIRCRAFT[id]; if (!sp) return;
-  if (!SAVE.owned.includes(id)) {
-    if (SAVE.points < sp.price) { toast(`Not enough points: the ${sp.name} costs ◆ ${fmtPts(sp.price)}. Fly missions to earn more`); return; }
-    SAVE.points -= sp.price; SAVE.owned.push(id); sfx.coin(); toast(`✈ The ${sp.name} is yours!`);
-    if (AIRCRAFT_ORDER.every(k => SAVE.owned.includes(k))) unlock('hangar');
-  }
-  SAVE.plane = id; persist();
-  setAircraft(id); placeParked(); settlePlane(); buildHangarUI(); nav.focus();
+  if (!AIRCRAFT[id]) return;
+  if (ownsPlane(id)) { SAVE.plane = id; persist(); }
+  if (id !== hangarView || plane.sp !== AIRCRAFT[id]) hangarShow(id);
+  hangarView = id; hangarFocus('plane:' + id);
+}
+function hangarBuy(id) {
+  const sp = AIRCRAFT[id]; if (!sp || ownsPlane(id)) return;
+  if (SAVE.points < sp.price) { toast(`Not enough points: the ${sp.name} costs ◆ ${fmtPts(sp.price)}. Fly missions to earn more`); return; }
+  SAVE.points -= sp.price; SAVE.owned.push(id); SAVE.plane = id; persist(); sfx.coin(); toast(`✈ The ${sp.name} is yours!`);
+  if (AIRCRAFT_ORDER.every(k => SAVE.owned.includes(k))) unlock('hangar');
+  if (hangarView !== id) hangarShow(id);
+  hangarView = id; hangarFocus('plane:' + id);
+}
+function hangarLeave() {
+  const id = hangarView; hangarView = null;
+  if (id && id !== SAVE.plane) hangarShow(SAVE.plane); // you were only window-shopping
 }
 function hangarPaint(i) {
-  const p = PAINTS[i]; if (!p) return;
-  if (!SAVE.paintsOwned.includes(i)) {
+  const p = PAINTS[i], id = hangarView || SAVE.plane; if (!p) return;
+  if (!ownsPaint(i)) {
     if (p.ach && !SAVE.ach[p.ach]) { toast(`${p.name} is the reward for the ${ACH.find(a => a.id === p.ach).name} achievement`); return; }
     if (SAVE.points < p.price) { toast(`Not enough points: ${p.name} costs ◆ ${fmtPts(p.price)}`); return; }
     SAVE.points -= p.price; SAVE.paintsOwned.push(i); sfx.coin();
   }
-  SAVE.paint[SAVE.plane] = i; persist();
-  setAircraft(SAVE.plane); placeParked(); settlePlane(); buildHangarUI(); nav.focus();
+  SAVE.paint[id] = i; persist();
+  hangarShow(id); hangarFocus('paint:' + i);
 }
 function buildHangarUI() {
+  const hv = hangarView || SAVE.plane, hsp = AIRCRAFT[hv];
   const all = AIRCRAFT_ORDER.map(aircraftStats), mxTop = Math.max(...all.map(s => s.top)), mxClimb = Math.max(...all.map(s => s.climb));
   const bar = (l, f) => `<div class="sbar"><span>${l}</span><div class="bar"><i style="width:${Math.round(clamp(f, 0.06, 1) * 100)}%"></i></div></div>`;
   const cards = AIRCRAFT_ORDER.map((k, i) => {
-    const sp = AIRCRAFT[k], st = all[i], own = SAVE.owned.includes(k), sel = SAVE.plane === k;
-    const tag = sel ? '<span style="color:var(--good);font-weight:700">✓ Flying</span>' : own ? '<span style="color:var(--muted)">Owned · select</span>' : `<span class="price">◆ ${fmtPts(sp.price)}</span>`;
-    return `<button class="mcard${sel ? ' sel' : ''}" data-act="plane:${k}"><div class="top"><b>${sp.name}</b>${tag}</div><small>${sp.cls}</small><p>${sp.desc}</p>
+    const sp = AIRCRAFT[k], st = all[i], own = ownsPlane(k), sel = SAVE.plane === k, look = hv === k && !sel;
+    const tag = sel ? '<span style="color:var(--good);font-weight:700">✓ Flying</span>' : own ? '<span style="color:var(--muted)">Owned · select</span>' : look ? '<span class="price">👁 Previewing</span>' : `<span class="price">◆ ${fmtPts(sp.price)}</span>`;
+    return `<button class="mcard${sel ? ' sel' : ''}${look ? ' pv' : ''}" data-act="plane:${k}"><div class="top"><b>${sp.name}</b>${tag}</div><small>${sp.cls}</small><p>${sp.desc}</p>
       ${bar('Speed', st.top / mxTop)}${bar('Climb', st.climb / mxClimb)}${bar('Agility', sp.agility / 10)}${bar('Rockets', sp.rockets / 20)}${bar('Armor', sp.hp / 200)}
       <small>Top ${Math.round(st.top)} kt · climb ${fmtPts(Math.round(st.climb / 50) * 50)} fpm · stall ${sp.kt.vs1} kt</small></button>`;
   }).join('');
-  const cur = SAVE.paint[SAVE.plane] || 0, sp = AIRCRAFT[SAVE.plane];
+  // what you're looking at, and the Buy button for it
+  let buy;
+  if (SAVE.plane === hv) buy = `<div class="hvbar"><span>✈ <b>${hsp.name}</b> is your aircraft. Pick any card to look at another one on the runway</span></div>`;
+  else if (SAVE.points >= hsp.price) buy = `<div class="hvbar look"><span>👁 Previewing the <b>${hsp.name}</b></span><button class="sbtn accent" data-act="buy:${hv}">Buy for ◆ ${fmtPts(hsp.price)}</button></div>`;
+  else buy = `<div class="hvbar look"><span>👁 Previewing the <b>${hsp.name}</b> · ◆ ${fmtPts(SAVE.points)} of ${fmtPts(hsp.price)}, ${fmtPts(hsp.price - SAVE.points)} to go</span><div class="bar hvneed"><i style="width:${Math.round(clamp(SAVE.points / hsp.price, 0, 1) * 100)}%"></i></div></div>`;
+  const cur = SAVE.paint[hv] || 0;
   const sw = PAINTS.map((p, i) => {
-    const c = p.body ? p : sp.paint, own = SAVE.paintsOwned.includes(i);
+    const c = p.body ? p : hsp.paint, own = ownsPaint(i);
     return `<button class="swatch${cur === i ? ' on' : ''}" data-act="paint:${i}" title="${p.name}${own ? '' : p.ach ? ' · reward for ' + ACH.find(a => a.id === p.ach).name : ' · ◆ ' + p.price}" style="background:linear-gradient(135deg,${c.body} 0 55%,${c.accent} 55% 78%,${c.dark} 78%)">${own ? (cur === i ? '✓' : '') : p.ach ? (SAVE.ach[p.ach] ? '' : '🔒') : '◆' + p.price}</button>`;
   }).join('');
   $('#hangarBody').innerHTML = `<div class="chips"><span class="chip pts">◆ <b>${fmtPts(SAVE.points)}</b> points</span><span class="chip">Earn more from missions, targets, beacons and smooth landings</span></div>
-    <div class="mgrid">${cards}</div><h3>Paint for the ${sp.name}</h3><div class="swatches">${sw}</div><div class="note" style="margin-top:6px">${PAINTS[cur].name}. Paint you buy works on every aircraft.</div>`;
+    ${buy}<div class="mgrid">${cards}</div><h3>Paint for the ${hsp.name}</h3><div class="swatches">${sw}</div><div class="note" style="margin-top:6px">${PAINTS[cur].name}. Paint you buy works on every aircraft.</div>`;
+}
+function setDebug(on) {
+  S.debug.on = on;
+  if (!on) { // back to what you actually own
+    if (!SAVE.owned.includes(SAVE.plane)) SAVE.plane = SAVE.owned[SAVE.owned.length - 1] || 'sr1';
+    for (const k of Object.keys(SAVE.paint)) if (!SAVE.paintsOwned.includes(SAVE.paint[k])) SAVE.paint[k] = 0;
+    if (G.state === 'menu') { if (hangarView) hangarView = SAVE.plane; hangarShow(SAVE.plane); }
+  }
+  saveSettings(); persist(); sfx.chime();
+  toast(on ? '🛠 Debug mode ON · every mission, level, aircraft and paint unlocked. Progress is not saved' : '🛠 Debug mode OFF · back to your normal save');
+  const top = topOverlay();
+  if (top === 'hangar') buildHangarUI(); else if (top === 'missions') buildMissionsUI(); else if (top === 'levels') buildLevelsUI();
+  if (top === 'pause') $('#dbgWinBtn').hidden = !(DBG() && G.ms && !G.ms.done);
+  updateMenuInfo(); nav.focus();
 }
 function levelRow(m) {
   if (!m.levels) return '';
-  if (!recOf(m.id).stars) return '<small>Clear it to unlock Hard, then Ace</small>';
+  if (!recOf(m.id).stars && !DBG()) return '<small>Clear it to unlock Hard, then Ace</small>';
   return `<small>${DIFFS.slice(1).map((D, i) => `${D.name} ${levelOpen(m, i + 1) ? `<span class="stars">${starStr(recOf(m.id, i + 1).stars || 0)}</span>` : '🔒'}`).join(' · ')}</small>`;
 }
 function buildLevelsUI() {
@@ -4234,7 +4293,7 @@ function buildMissionsUI() {
   const ts = totalStars(), lvStars = d => MISSIONS.reduce((s, m) => s + (m.levels ? recOf(m.id, d).stars || 0 : 0), 0), nLv = MISSIONS.filter(m => m.levels).length;
   $('#missionsBody').innerHTML = `<div class="chips"><span class="chip pts">◆ <b>${fmtPts(SAVE.points)}</b> points</span><span class="chip">★ <b>${ts} / ${MISSIONS.length * 3}</b> stars</span>${MISSIONS.some(m => m.levels && recOf(m.id).stars) ? [1, 2].map(d => `<span class="chip">${DIFFS[d].name} ★ <b>${lvStars(d)} / ${nLv * 3}</b></span>`).join('') : ''}<span class="chip">✈ ${escapeHtml(plane.sp.name)} · ${S.flightMode === 'arcade' ? 'Arcade' : 'Natural'}</span></div>
     <div class="mgrid">${MISSIONS.map(m => {
-      const r = SAVE.missions[m.id], ok = ts >= m.need;
+      const r = SAVE.missions[m.id], ok = isUnlocked(m);
       const best = r && r.best ? 'Best ' + fmtTime(r.best) : r && r.score ? 'Best ' + r.score + ' / 100' : ok ? 'Not flown yet' : `Earn ${m.need - ts} more ★ to unlock`;
       return `<button class="mcard${ok ? '' : ' locked'}" ${ok ? `data-act="mission:${m.id}"` : 'disabled'}><div class="top"><span class="ic">${m.ic}</span>${ok ? `<span class="stars">${starStr(r ? r.stars : 0)}</span>` : `<span>🔒 ${m.need} ★</span>`}</div><b>${m.name}</b><p>${m.desc}</p><small>${best} · reward ◆ ${m.reward}</small>${ok ? levelRow(m) : ''}</button>`;
     }).join('')}</div>`;
@@ -4295,7 +4354,7 @@ function tick(dt) {
       G.maxG = Math.max(G.maxG, plane.G);
       if (G.state === 'flying') {
         if (G.ms && !G.ms.done) { G.ms.t += dt; MT[G.ms.type].update(G.ms, dt); }
-        if (G.state === 'flying') { updateRearm(dt); trackFlight(dt); }
+        if (G.state === 'flying') { updateRearm(dt); trackFlight(dt); if (DBG() && S.debug.ammo) plane.rockets = plane.sp.rockets; }
       }
     } else plane.events.length = 0;
   } else { acc = 0; if (G.state === 'crashed') G.crashT += dt; }
