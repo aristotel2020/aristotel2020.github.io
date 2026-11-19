@@ -1,0 +1,1195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Squish</title>
+<meta name="description" content="Load any picture, paint the parts you want squishy, then pull them and watch them wobble back. Save it as a GIF.">
+<meta name="theme-color" content="#fbf1e6">
+<link rel="icon" href="../img/squish.webp">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#fbf1e6; --paper:#fffaf4; --ink:#3a2a30; --muted:#8a747a; --line:#ecdacb;
+  --accent:#ff6f86; --accent-d:#e2546c;
+  --display:"Fredoka",ui-rounded,"Segoe UI",system-ui,-apple-system,Roboto,sans-serif;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;height:100%}
+body{
+  background:var(--bg); color:var(--ink); font:500 16px/1.4 var(--display);
+  overflow:hidden; overscroll-behavior:none; -webkit-tap-highlight-color:transparent;
+}
+button,select,a{touch-action:manipulation}
+#app{height:100vh; height:100dvh; display:grid; grid-template-rows:auto minmax(0,1fr) auto}
+
+/* top bar */
+.top{
+  display:flex; align-items:center; gap:10px;
+  padding:max(8px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) 8px max(12px,env(safe-area-inset-left));
+}
+.back{color:var(--muted); text-decoration:none; font-weight:600; font-size:15px; padding:8px 12px; border-radius:999px}
+.back:hover{background:rgba(58,42,48,.06); color:var(--ink)}
+.brand{margin:0; font:700 25px/1 var(--display); letter-spacing:.01em}
+.top-actions{margin-left:auto; display:flex; gap:8px}
+.icon-btn{
+  width:42px; height:42px; border-radius:50%; border:2px solid var(--line); background:#fff; color:var(--ink);
+  display:grid; place-items:center; cursor:pointer; font:700 18px/1 var(--display); padding:0;
+}
+.icon-btn:hover{background:#fff6f0}
+.icon-btn svg{width:20px; height:20px}
+
+/* stage */
+#stage{
+  position:relative; overflow:hidden; touch-action:none; user-select:none; -webkit-user-select:none;
+  margin:0 max(10px,env(safe-area-inset-right)) 0 max(10px,env(safe-area-inset-left));
+  border-radius:24px; border:2px solid var(--line);
+  background:
+    linear-gradient(rgba(58,42,48,0) 23px, rgba(58,42,48,.045) 23px) 0 0/24px 24px,
+    linear-gradient(90deg, rgba(58,42,48,0) 23px, rgba(58,42,48,.045) 23px) 0 0/24px 24px,
+    radial-gradient(circle at 50% 42%, #fffaf4 0, #f8e9da 100%);
+}
+#gl{position:absolute; inset:0; width:100%; height:100%; display:block}
+body[data-mode=play] #stage{cursor:grab}
+body[data-mode=play] #stage.grabbing{cursor:grabbing}
+body[data-mode=paint] #stage{cursor:crosshair}
+#maskView{position:absolute; pointer-events:none; opacity:.55}
+#brushRing{
+  position:absolute; left:0; top:0; border-radius:50%; pointer-events:none; transform:translate(-50%,-50%);
+  border:2px solid #fff; box-shadow:0 0 0 1.5px rgba(58,42,48,.55), inset 0 0 0 1.5px rgba(58,42,48,.3);
+}
+.hint{
+  position:absolute; left:50%; top:12px; transform:translateX(-50%); margin:0; padding:8px 16px; border-radius:18px;
+  background:rgba(255,255,255,.88); font-size:15px; box-shadow:0 4px 14px -6px rgba(58,42,48,.3);
+  pointer-events:none; width:max-content; max-width:calc(100% - 24px); text-align:center; text-wrap:balance;
+  transition:opacity .5s;
+}
+.hint.gone{opacity:0}
+body[data-mode=empty] .hint{display:none}
+
+#empty{position:absolute; inset:0; display:grid; place-items:center; padding:16px; overflow:auto}
+body:not([data-mode=empty]) #empty{display:none}
+.drop-card{
+  max-width:450px; text-align:center; background:var(--paper); border:2.5px dashed #e6c3ae; border-radius:28px; padding:26px 22px;
+}
+.drop-card img{width:118px; height:118px; display:block; margin:0 auto; animation:jiggle 2.6s ease-in-out infinite; transform-origin:50% 88%}
+@keyframes jiggle{
+  0%,100%{transform:scale(1,1)} 35%{transform:scale(1.09,.92)} 50%{transform:scale(.95,1.06)}
+  63%{transform:scale(1.03,.97)} 75%{transform:scale(.99,1.01)}
+}
+.drop-card h2{margin:8px 0 6px; font:700 26px/1.15 var(--display); text-wrap:balance}
+.drop-card p{margin:0 0 18px; color:var(--muted)}
+.drop-card .fine{font-size:13.5px; margin:16px 0 0}
+#glError{color:var(--accent-d)}
+
+#recBadge{
+  position:absolute; right:12px; top:12px; padding:6px 12px; border-radius:999px; background:#ff3b5c; color:#fff;
+  font-weight:700; font-size:14px; display:flex; align-items:center; gap:7px; font-variant-numeric:tabular-nums;
+}
+#recBadge i{width:8px; height:8px; border-radius:50%; background:#fff; animation:blink 1s steps(2) infinite}
+@keyframes blink{50%{opacity:.25}}
+
+/* bottom dock */
+#dock{padding:10px max(12px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left))}
+body[data-mode=empty] #dock{display:none}
+.panel{display:none; flex-direction:column; gap:10px; align-items:center}
+body[data-mode=paint] .panel[data-for=paint], body[data-mode=play] .panel[data-for=play]{display:flex}
+.row{display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:center}
+
+.btn{
+  display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:44px; padding:0 18px;
+  border-radius:999px; border:2px solid var(--line); background:#fff; color:var(--ink);
+  font:600 16px/1 var(--display); cursor:pointer; text-decoration:none; white-space:nowrap;
+  transition:transform .08s, background .15s, box-shadow .15s;
+}
+.btn:hover{background:#fff6f0}
+.btn:active{transform:translateY(1px)}
+.btn:disabled{opacity:.45; cursor:default; transform:none}
+.btn.primary{background:var(--accent); border-color:var(--accent); color:#fff; box-shadow:0 3px 0 var(--accent-d)}
+.btn.primary:hover{background:#ff7d92}
+.btn.primary:active{transform:translateY(2px); box-shadow:0 1px 0 var(--accent-d)}
+.btn:focus-visible,.icon-btn:focus-visible,.seg button:focus-visible,select:focus-visible,.back:focus-visible{outline:3px solid #7cb7ff; outline-offset:2px}
+.btn.rec{position:relative; overflow:hidden}
+.btn.rec .dot{width:12px; height:12px; border-radius:50%; background:#ff3b5c; flex:none}
+.btn.rec .fill{position:absolute; inset:0 auto 0 0; width:calc(var(--p,0) * 100%); background:rgba(255,59,92,.14); pointer-events:none}
+body.recording .btn.rec{border-color:#ff9fb0}
+body.recording .btn.rec .dot{border-radius:3px}
+
+.seg{display:inline-flex; padding:3px; border-radius:999px; background:#f3e4d7; gap:2px}
+.seg button{
+  min-height:38px; padding:0 14px; border:0; border-radius:999px; background:transparent; color:var(--muted);
+  font:600 15px/1 var(--display); cursor:pointer;
+}
+.seg button[aria-pressed=true]{background:#fff; color:var(--ink); box-shadow:0 1px 3px rgba(58,42,48,.2)}
+.slider{display:inline-flex; align-items:center; gap:10px; font-weight:600; font-size:15px; color:var(--muted); padding:0 4px}
+.slider input{width:min(150px,30vw); accent-color:var(--accent)}
+.pick{display:inline-flex; align-items:center; gap:8px; font-weight:600; font-size:15px; color:var(--muted)}
+select{
+  min-height:44px; padding:0 34px 0 14px; border-radius:999px; border:2px solid var(--line); color:var(--ink);
+  font:600 15px/1 var(--display); cursor:pointer; appearance:none; -webkit-appearance:none;
+  background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%238a747a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 13px center/12px 8px;
+}
+
+#dropOverlay{
+  position:fixed; inset:10px; display:grid; place-items:center; border-radius:28px; z-index:20; pointer-events:none;
+  background:rgba(255,111,134,.16); border:4px dashed var(--accent); font:700 32px var(--display); color:var(--accent-d);
+}
+#toast{
+  position:fixed; left:50%; top:calc(70px + env(safe-area-inset-top)); transform:translate(-50%,-12px);
+  background:var(--ink); color:#fff; padding:10px 16px; border-radius:14px; font-size:15px; opacity:0;
+  pointer-events:none; transition:opacity .2s, transform .2s; z-index:30; max-width:calc(100vw - 32px); text-align:center;
+}
+#toast.show{opacity:1; transform:translate(-50%,0)}
+
+dialog{
+  border:0; border-radius:24px; padding:22px; background:var(--paper); color:var(--ink);
+  width:min(520px,calc(100vw - 24px)); max-height:calc(100dvh - 24px); box-shadow:0 30px 80px -20px rgba(58,42,48,.5);
+}
+dialog::backdrop{background:rgba(58,42,48,.4)}
+dialog h2{margin:0 0 12px; font:700 23px/1.2 var(--display)}
+.gif-frame{
+  border-radius:16px; overflow:hidden; display:grid; place-items:center;
+  background:#fff conic-gradient(#efe6df 25%, #fff 0 50%, #efe6df 0 75%, #fff 0) 0 0/20px 20px;
+}
+.gif-frame img{max-width:100%; max-height:min(56vh,440px); display:block}
+#gifInfo{color:var(--muted); font-size:14px; text-align:center; margin:10px 0 14px}
+.about p,.about li{color:#5c474d}
+.about p{margin:0 0 10px}
+.about ol{padding-left:22px; margin:0 0 12px}
+.about a{color:var(--accent-d)}
+.about .row{margin-top:16px}
+
+@media (max-width:560px){
+  .brand{font-size:22px}
+  .btn{padding:0 14px; font-size:15px}
+  .slider input{width:min(130px,34vw)}
+  #stage{border-radius:18px}
+  .hint{font-size:14px; top:10px}
+}
+@media (prefers-reduced-motion:reduce){ .drop-card img{animation:none} }
+</style>
+</head>
+<body data-mode="empty">
+<div id="app">
+  <header class="top">
+    <a class="back" href="../">‹ Games</a>
+    <h1 class="brand">Squish</h1>
+    <div class="top-actions">
+      <button id="btnSound" class="icon-btn" type="button" aria-label="Sound" aria-pressed="true">
+        <svg id="icoSoundOn" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" fill="currentColor"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <svg id="icoSoundOff" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" fill="currentColor"/><path d="M16 9.5l5 5M21 9.5l-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+      <button id="btnInfo" class="icon-btn" type="button" aria-label="About Squish">?</button>
+    </div>
+  </header>
+
+  <main id="stage">
+    <canvas id="gl"></canvas>
+    <canvas id="maskView" hidden></canvas>
+    <div id="brushRing" hidden></div>
+    <p id="hint" class="hint"></p>
+    <div id="recBadge" hidden><i></i><span id="recTime">0.0</span>s</div>
+    <section id="empty">
+      <div class="drop-card">
+        <img id="emptyBao" alt="">
+        <h2>Make any picture squishy</h2>
+        <p>Drop a picture here, paste one, or pick a file. Paint the parts you want squishy, then grab them and pull.</p>
+        <div class="row">
+          <button id="btnPick" class="btn primary" type="button">Choose a picture</button>
+          <button id="btnSample" class="btn" type="button">Try it with Bao</button>
+        </div>
+        <p class="fine">Your picture stays on your device. Nothing gets uploaded.</p>
+        <p id="glError" class="fine" hidden>Your browser couldn't start WebGL, which Squish needs. Try another browser.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer id="dock">
+    <div class="panel" data-for="paint">
+      <div class="row">
+        <div class="seg" role="group" aria-label="Tool">
+          <button type="button" data-tool="brush" aria-pressed="true">Brush</button>
+          <button type="button" data-tool="eraser" aria-pressed="false">Eraser</button>
+        </div>
+        <label class="slider">Size <input id="brushSize" type="range" min="2" max="24" value="9"></label>
+        <div class="seg" role="group" aria-label="Brush edge">
+          <button type="button" data-edge="soft" aria-pressed="true">Soft</button>
+          <button type="button" data-edge="hard" aria-pressed="false">Hard</button>
+        </div>
+      </div>
+      <div class="row">
+        <button id="btnUndo" class="btn" type="button">Undo</button>
+        <button id="btnClear" class="btn" type="button">Clear</button>
+        <button id="btnAll" class="btn" type="button">Paint all</button>
+        <button id="btnNewA" class="btn" type="button">New picture</button>
+        <button id="btnPlay" class="btn primary" type="button">Squish it ›</button>
+      </div>
+    </div>
+    <div class="panel" data-for="play">
+      <div class="row">
+        <label class="slider">Squishy <input id="soft" type="range" min="0" max="100" value="55"></label>
+        <label class="slider">Wobble <input id="wobble" type="range" min="0" max="100" value="60"></label>
+      </div>
+      <div class="row">
+        <button id="btnRepaint" class="btn" type="button">Repaint</button>
+        <button id="btnNewB" class="btn" type="button">New picture</button>
+        <label class="pick">GIF
+          <select id="gifBg" aria-label="GIF background">
+            <option value="transparent">Transparent</option>
+            <option value="cream">Cream</option>
+            <option value="green">Green screen</option>
+          </select>
+        </label>
+        <button id="btnRec" class="btn rec" type="button"><span class="fill"></span><span class="dot"></span><span id="recLabel">Record GIF</span></button>
+      </div>
+    </div>
+  </footer>
+</div>
+
+<input id="file" type="file" accept="image/*" hidden>
+<div id="dropOverlay" hidden>Drop to squish</div>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<dialog id="gifDialog">
+  <h2>Your squish GIF</h2>
+  <div class="gif-frame"><img id="gifImg" alt="Animated GIF of your squish"></div>
+  <p id="gifInfo"></p>
+  <div class="row">
+    <button id="gifShare" class="btn" type="button" hidden>Share</button>
+    <a id="gifSave" class="btn primary" download="squish.gif" href="#">Download GIF</a>
+    <button id="gifClose" class="btn" type="button">Close</button>
+  </div>
+</dialog>
+
+<dialog id="aboutDialog" class="about">
+  <h2>About Squish</h2>
+  <ol>
+    <li>Load a picture: drop it, paste it, or pick a file.</li>
+    <li>Paint the parts you want squishy. Cheeks work great.</li>
+    <li>Grab and pull, then let go. Tap for a little boing, or use two fingers at once.</li>
+  </ol>
+  <p>Hit <b>Record GIF</b> to save a clip. Pick a transparent or green-screen background if you want to use it on a stream or in another app.</p>
+  <p>Everything happens in your browser. Your picture never leaves your device.</p>
+  <p>Inspired by <a href="https://sabanogames.com/entertainments/moti_hoppe_maker/" target="_blank" rel="noopener">Mochi Hoppe Maker</a> by Saba no Games.</p>
+  <div class="row"><button id="aboutClose" class="btn primary" type="button">Got it</button></div>
+</dialog>
+
+<script>
+(() => {
+'use strict';
+
+/* ---------- small helpers ---------- */
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => [...document.querySelectorAll(s)];
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const lerp = (a, b, t) => a + (b - a) * t;
+
+const GRID = 72;            // mesh cells along the picture's long side
+const SUB = 1 / 240;        // physics step (s)
+const MASK_LONG = 512;      // paint mask resolution, long side
+const MAX_GRABS = 5;
+const GIF_FRAME_MS = 32;    // ~30 fps capture
+const GIF_MAX_S = 6;
+const GIF_MAX_SIDE = 420;
+const MASK_RGB = '255,92,128';
+
+/* Bao, the sample character */
+const BAO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+<defs>
+<radialGradient id="body" cx="42%" cy="36%" r="72%"><stop offset="0" stop-color="#fffbf5"/><stop offset=".68" stop-color="#fbe8d4"/><stop offset="1" stop-color="#eccaa9"/></radialGradient>
+<radialGradient id="blush"><stop offset="0" stop-color="#ff8aa0" stop-opacity=".9"/><stop offset=".6" stop-color="#ff8aa0" stop-opacity=".45"/><stop offset="1" stop-color="#ff8aa0" stop-opacity="0"/></radialGradient>
+</defs>
+<ellipse cx="256" cy="452" rx="150" ry="20" fill="#3a2a30" opacity=".08"/>
+<path d="M256 122C372 122 442 202 442 300C442 400 362 446 256 446C150 446 70 400 70 300C70 202 140 122 256 122Z" fill="url(#body)" stroke="#d6aa86" stroke-width="5"/>
+<path d="M214 146q42-30 84 0M232 136q24-26 48 0" fill="none" stroke="#e3bd9b" stroke-width="5" stroke-linecap="round"/>
+<path d="M256 128C252 104 254 86 262 66" fill="none" stroke="#4f9a5f" stroke-width="7" stroke-linecap="round"/>
+<path d="M262 68C288 40 330 44 342 60C320 82 286 84 262 68Z" fill="#7cc98a" stroke="#4f9a5f" stroke-width="4" stroke-linejoin="round"/>
+<path d="M259 74C236 52 204 54 194 68C212 86 240 88 259 74Z" fill="#93d79e" stroke="#4f9a5f" stroke-width="4" stroke-linejoin="round"/>
+<ellipse cx="160" cy="334" rx="50" ry="33" fill="url(#blush)"/>
+<ellipse cx="352" cy="334" rx="50" ry="33" fill="url(#blush)"/>
+<ellipse cx="196" cy="286" rx="15" ry="19" fill="#3a2a30"/><circle cx="201" cy="278" r="5.5" fill="#fff"/>
+<ellipse cx="316" cy="286" rx="15" ry="19" fill="#3a2a30"/><circle cx="321" cy="278" r="5.5" fill="#fff"/>
+<path d="M234 322q11 13 22 0q11 13 22 0" fill="none" stroke="#3a2a30" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>`;
+/* squishy spots for Bao: [x, y, radius] as fractions of the picture */
+const BAO_SPOTS = [[146 / 512, 350 / 512, 0.13], [366 / 512, 350 / 512, 0.13], [266 / 512, 66 / 512, 0.11]];
+
+const stage = $('#stage'), cv = $('#gl'), maskCv = $('#maskView'), ring = $('#brushRing'), hintEl = $('#hint');
+const mctx = maskCv.getContext('2d', { willReadFrequently: true });
+
+const S = {
+  mode: 'empty', aw: 1, ah: 1, rect: { x: 0, y: 0, w: 0, h: 0, s: 1 }, cssW: 1, cssH: 1, dpr: 1,
+  tool: 'brush', hard: false, brush: 9, soft: 0.55, wobble: 0.6, muted: false, gifBg: 'transparent', encoding: false,
+};
+
+/* ---------- settings ---------- */
+try {
+  const saved = JSON.parse(localStorage.getItem('squish.settings') || '{}');
+  if (typeof saved.soft === 'number') S.soft = clamp(saved.soft, 0, 1);
+  if (typeof saved.wobble === 'number') S.wobble = clamp(saved.wobble, 0, 1);
+  if (typeof saved.brush === 'number') S.brush = clamp(saved.brush, 2, 24);
+  if (typeof saved.muted === 'boolean') S.muted = saved.muted;
+  if (typeof saved.hard === 'boolean') S.hard = saved.hard;
+  if (['transparent', 'cream', 'green'].includes(saved.gifBg)) S.gifBg = saved.gifBg;
+} catch {}
+function saveSettings() {
+  try {
+    localStorage.setItem('squish.settings', JSON.stringify({
+      soft: S.soft, wobble: S.wobble, brush: S.brush, muted: S.muted, hard: S.hard, gifBg: S.gifBg,
+    }));
+  } catch {}
+}
+
+/* ---------- toast & hint ---------- */
+let toastTimer = 0;
+function toast(msg, ms = 2600) {
+  const t = $('#toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), ms);
+}
+const HINTS = {
+  paint: 'Paint the parts you want squishy. Cheeks work great!',
+  play: 'Grab and pull, then let go. Tap for a little boing.',
+};
+function showHint(mode) { hintEl.textContent = HINTS[mode] || ''; hintEl.classList.remove('gone'); }
+function dismissHint() { hintEl.classList.add('gone'); }
+
+/* ---------- WebGL ---------- */
+let gl = null, prog = null, loc = {}, bufPos = null, bufUV = null, bufIdx = null, tex = null, texCanvas = null;
+
+const VS = `attribute vec3 aPos; attribute vec2 aUV; uniform vec2 uRes; varying vec2 vUV;
+void main(){ vUV = aUV; gl_Position = vec4(aPos.x / uRes.x * 2.0 - 1.0, 1.0 - aPos.y / uRes.y * 2.0, aPos.z, 1.0); }`;
+// pass 0 draws solid pixels with depth; pass 1 blends the soft edges on top without writing depth
+const FS = `precision mediump float; varying vec2 vUV; uniform sampler2D uTex; uniform float uPass;
+void main(){
+  vec4 c = texture2D(uTex, vUV);
+  if (uPass < 0.5) { if (c.a < 0.985) discard; }
+  else { if (c.a >= 0.985 || c.a < 0.004) discard; }
+  gl_FragColor = c;
+}`;
+
+function initGL() {
+  gl = cv.getContext('webgl', { alpha: true, premultipliedAlpha: true, antialias: true, depth: true });
+  if (!gl) return false;
+  const sh = (type, src) => {
+    const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+    return s;
+  };
+  prog = gl.createProgram();
+  gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS));
+  gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS));
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+  loc = {
+    pos: gl.getAttribLocation(prog, 'aPos'), uv: gl.getAttribLocation(prog, 'aUV'),
+    res: gl.getUniformLocation(prog, 'uRes'), tex: gl.getUniformLocation(prog, 'uTex'), pass: gl.getUniformLocation(prog, 'uPass'),
+  };
+  bufPos = gl.createBuffer(); bufUV = gl.createBuffer(); bufIdx = gl.createBuffer(); tex = gl.createTexture();
+  return true;
+}
+
+function uploadTexture() {
+  if (!gl || !texCanvas) return;
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, texCanvas);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+}
+
+/* ---------- mesh & physics state ---------- */
+const M = { nx: 0, ny: 0, N: 0, rx: null, ry: null, dx: null, dy: null, vx: null, vy: null, nvx: null, nvy: null, mob: null, pos: null, uv: null, idx: null };
+
+function buildMesh() {
+  let cols, rows;
+  if (S.aw >= S.ah) { cols = GRID; rows = Math.max(6, Math.round(GRID * S.ah / S.aw)); }
+  else { rows = GRID; cols = Math.max(6, Math.round(GRID * S.aw / S.ah)); }
+  const nx = cols + 1, ny = rows + 1, N = nx * ny;
+  Object.assign(M, {
+    nx, ny, N,
+    rx: new Float32Array(N), ry: new Float32Array(N), dx: new Float32Array(N), dy: new Float32Array(N),
+    vx: new Float32Array(N), vy: new Float32Array(N), nvx: new Float32Array(N), nvy: new Float32Array(N), mob: new Uint8Array(N),
+    pos: new Float32Array(N * 3), uv: new Float32Array(N * 2), idx: new Uint16Array(cols * rows * 6),
+  });
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+    const k = j * nx + i, u = i / cols, v = j / rows;
+    M.rx[k] = u * S.aw; M.ry[k] = v * S.ah; M.uv[k * 2] = u; M.uv[k * 2 + 1] = v;
+  }
+  let p = 0;
+  for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
+    const a = j * nx + i, b = a + 1, c = a + nx, d = c + 1;
+    M.idx[p++] = a; M.idx[p++] = c; M.idx[p++] = b; M.idx[p++] = b; M.idx[p++] = c; M.idx[p++] = d;
+  }
+}
+
+function uploadMesh() {
+  if (!gl || !M.N) return;
+  gl.bindBuffer(gl.ARRAY_BUFFER, bufUV); gl.bufferData(gl.ARRAY_BUFFER, M.uv, gl.STATIC_DRAW);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, bufIdx); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, M.idx, gl.STATIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER, bufPos); gl.bufferData(gl.ARRAY_BUFFER, M.pos.byteLength, gl.DYNAMIC_DRAW);
+}
+
+function zeroField() {
+  if (!M.N) return;
+  M.dx.fill(0); M.dy.fill(0); M.vx.fill(0); M.vy.fill(0);
+}
+
+/* The squishy area behaves like a stretchy sheet: every painted point is tied to its neighbours
+   and gently pulled home; unpainted points stay put and hold the sheet's edge. */
+function step(dt) {
+  const { nx, ny, N, dx, dy, vx, vy, mob } = M;
+  const speed = lerp(1.7, 0.8, S.soft);          // how fast a wobble travels (picture widths / s)
+  const C = (speed * GRID) * (speed * GRID);
+  const damp = Math.exp(-lerp(13, 2.2, S.wobble) * dt);
+  const K = 24, VISC = 18;
+  const nvx = M.nvx, nvy = M.nvy;
+  for (let j = 0; j < ny; j++) {
+    const row = j * nx;
+    for (let i = 0; i < nx; i++) {
+      const k = row + i;
+      if (!mob[k]) continue;
+      const x = dx[k], y = dy[k];
+      const ux = vx[k], uy = vy[k];
+      let lx = -4 * x, ly = -4 * y, qx = -4 * ux, qy = -4 * uy;
+      if (i > 0) { lx += dx[k - 1]; ly += dy[k - 1]; qx += vx[k - 1]; qy += vy[k - 1]; }
+      if (i < nx - 1) { lx += dx[k + 1]; ly += dy[k + 1]; qx += vx[k + 1]; qy += vy[k + 1]; }
+      if (j > 0) { lx += dx[k - nx]; ly += dy[k - nx]; qx += vx[k - nx]; qy += vy[k - nx]; }
+      if (j < ny - 1) { lx += dx[k + nx]; ly += dy[k + nx]; qx += vx[k + nx]; qy += vy[k + nx]; }
+      // VISC smooths out fine ripples so the surface stays smooth while the big wobble carries on
+      nvx[k] = (ux + (C * lx - K * x + VISC * qx) * dt) * damp;
+      nvy[k] = (uy + (C * ly - K * y + VISC * qy) * dt) * damp;
+    }
+  }
+  let energy = 0;
+  for (let k = 0; k < N; k++) {
+    if (!mob[k]) continue;
+    vx[k] = nvx[k]; vy[k] = nvy[k];
+    dx[k] += vx[k] * dt; dy[k] += vy[k] * dt;
+    const e = Math.abs(dx[k]) + Math.abs(dy[k]) + (Math.abs(vx[k]) + Math.abs(vy[k])) * 0.05;
+    if (e > energy) energy = e;
+  }
+  const ease = 1 - Math.exp(-dt / 0.025);
+  for (const g of grabs.values()) {
+    g.tx += (g.gx - g.tx) * ease; g.ty += (g.gy - g.ty) * ease;
+    for (let n = 0; n < g.list.length; n++) {
+      const k = g.list[n], w = g.w[n];
+      dx[k] += (g.tx - dx[k]) * w; dy[k] += (g.ty - dy[k]) * w;
+      vx[k] *= 1 - w; vy[k] *= 1 - w;
+    }
+    energy = 1;
+  }
+  return energy;
+}
+
+/* ---------- layout & render ---------- */
+function layout() {
+  const b = stage.getBoundingClientRect();
+  S.cssW = Math.max(1, b.width); S.cssH = Math.max(1, b.height);
+  S.dpr = Math.min(2, window.devicePixelRatio || 1);
+  const W = Math.round(S.cssW * S.dpr), H = Math.round(S.cssH * S.dpr);
+  if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+  if (M.N) {
+    const s = Math.min(S.cssW * 0.78 / S.aw, (S.cssH - 40) * 0.8 / S.ah);
+    const w = S.aw * s, h = S.ah * s;
+    S.rect = { x: (S.cssW - w) / 2, y: (S.cssH - h) / 2 + 12, w, h, s };
+    Object.assign(maskCv.style, { left: S.rect.x + 'px', top: S.rect.y + 'px', width: w + 'px', height: h + 'px' });
+  }
+  requestRender();
+}
+
+function render() {
+  if (!gl) return;
+  gl.viewport(0, 0, cv.width, cv.height);
+  gl.clearColor(0, 0, 0, 0); gl.clearDepth(1);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  if (!M.N || !texCanvas || S.mode === 'empty') return;
+  const r = S.rect, P = M.pos, flat = S.mode !== 'play', { nx, ny, dx, dy, rx, ry } = M;
+  if (flat) {
+    for (let k = 0; k < M.N; k++) { P[k * 3] = r.x + rx[k] * r.s; P[k * 3 + 1] = r.y + ry[k] * r.s; P[k * 3 + 2] = 0; }
+  } else {
+    // Depth: pulled-out parts sit on top, squashed or folded-over parts tuck in behind.
+    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+      const k = j * nx + i;
+      const kl = i > 0 ? k - 1 : k, kr = i < nx - 1 ? k + 1 : k, ku = j > 0 ? k - nx : k, kd = j < ny - 1 ? k + nx : k;
+      const du = rx[kr] - rx[kl] || 1, dv = ry[kd] - ry[ku] || 1;
+      const xu = (rx[kr] + dx[kr] - rx[kl] - dx[kl]) / du, yu = (dy[kr] - dy[kl]) / du;
+      const xv = (dx[kd] - dx[ku]) / dv, yv = (ry[kd] + dy[kd] - ry[ku] - dy[ku]) / dv;
+      const squash = clamp(1 - (xu * yv - yu * xv), 0, 2);
+      const lift = Math.min(1, Math.hypot(dx[k], dy[k]) * 3);
+      P[k * 3] = r.x + (rx[k] + dx[k]) * r.s;
+      P[k * 3 + 1] = r.y + (ry[k] + dy[k]) * r.s;
+      P[k * 3 + 2] = clamp(0.45 * squash - 0.5 * lift, -0.95, 0.95);
+    }
+  }
+  gl.useProgram(prog);
+  gl.uniform2f(loc.res, S.cssW, S.cssH);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tex); gl.uniform1i(loc.tex, 0);
+  gl.bindBuffer(gl.ARRAY_BUFFER, bufPos); gl.bufferSubData(gl.ARRAY_BUFFER, 0, P);
+  gl.vertexAttribPointer(loc.pos, 3, gl.FLOAT, false, 0, 0); gl.enableVertexAttribArray(loc.pos);
+  gl.bindBuffer(gl.ARRAY_BUFFER, bufUV);
+  gl.vertexAttribPointer(loc.uv, 2, gl.FLOAT, false, 0, 0); gl.enableVertexAttribArray(loc.uv);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, bufIdx);
+  gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
+  gl.disable(gl.BLEND); gl.depthMask(true); gl.uniform1f(loc.pass, 0);
+  gl.drawElements(gl.TRIANGLES, M.idx.length, gl.UNSIGNED_SHORT, 0);
+  gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false); gl.uniform1f(loc.pass, 1);
+  gl.drawElements(gl.TRIANGLES, M.idx.length, gl.UNSIGNED_SHORT, 0);
+  gl.depthMask(true);
+}
+
+/* ---------- main loop (sleeps when nothing moves) ---------- */
+let rafId = 0, lastT = 0, acc = 0, dirty = false, energy = 0;
+function wake() { if (!rafId) { lastT = performance.now(); rafId = requestAnimationFrame(frame); } }
+function requestRender() { dirty = true; wake(); }
+function frame(now) {
+  rafId = 0;
+  const dt = Math.min(0.05, Math.max(0, (now - lastT) / 1000)); lastT = now;
+  if (S.mode === 'play' && M.N) {
+    acc += dt; let n = 0;
+    while (acc >= SUB && n < 14) { energy = step(SUB); acc -= SUB; n++; }
+    if (n === 14) acc = 0;
+    if (n && !grabs.size && energy < 2e-5) { zeroField(); energy = 0; }
+  }
+  render(); dirty = false;
+  if (R.on) captureFrame(now);
+  if (R.on || grabs.size || (S.mode === 'play' && energy > 0) || dirty) wake();
+}
+
+/* ---------- loading pictures ---------- */
+function loadImageEl(url) {
+  return new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => rej(new Error('load')); im.src = url; });
+}
+async function openBlob(blob, sample = false) {
+  if (!blob || S.encoding) return;
+  if (!gl) { toast('Squish needs WebGL, which this browser has turned off.'); return; }
+  if (blob.type && !blob.type.startsWith('image/')) { toast("That doesn't look like a picture."); return; }
+  const url = URL.createObjectURL(blob);
+  try {
+    const im = await loadImageEl(url);
+    setImage(im, blob.type === 'image/svg+xml');
+  } catch {
+    toast("Couldn't open that picture. Try a PNG or JPG.");
+    return;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+  if (sample) { paintSpots(BAO_SPOTS); enterPlay(); }
+  else enterPaint();
+}
+function openSample() { openBlob(new Blob([BAO_SVG], { type: 'image/svg+xml' }), true); }
+
+function setImage(im, isSvg) {
+  stopRecording(true); releaseAll();
+  let nw = im.naturalWidth || im.width, nh = im.naturalHeight || im.height;
+  if (!nw || !nh) { nw = 512; nh = 512; }
+  const long = Math.max(nw, nh);
+  S.aw = nw / long; S.ah = nh / long;
+  const b = stage.getBoundingClientRect();
+  const want = Math.ceil(Math.max(b.width, b.height) * Math.min(2, window.devicePixelRatio || 1));
+  const tl = isSvg ? clamp(want, 512, 2048) : Math.min(long, 2048, Math.max(want, 768));
+  texCanvas = document.createElement('canvas');
+  texCanvas.width = Math.max(1, Math.round(S.aw * tl)); texCanvas.height = Math.max(1, Math.round(S.ah * tl));
+  const c = texCanvas.getContext('2d');
+  c.imageSmoothingQuality = 'high';
+  c.drawImage(im, 0, 0, texCanvas.width, texCanvas.height);
+  uploadTexture(); buildMesh(); uploadMesh();
+  maskCv.width = Math.max(1, Math.round(MASK_LONG * S.aw)); maskCv.height = Math.max(1, Math.round(MASK_LONG * S.ah));
+  mctx.clearRect(0, 0, maskCv.width, maskCv.height);
+  undoStack.length = 0;
+  layout();
+}
+
+/* ---------- modes ---------- */
+function setMode(m) { S.mode = m; document.body.dataset.mode = m; syncUI(); requestRender(); }
+function enterPaint() {
+  stopRecording(true); releaseAll(); zeroField();
+  maskCv.hidden = false; setMode('paint'); showHint('paint');
+}
+function enterPlay() {
+  if (!computeMobility()) { toast('Paint some squishy parts first, or tap "Paint all".'); return; }
+  zeroField(); maskCv.hidden = true; ring.hidden = true; setMode('play'); showHint('play');
+}
+
+/* ---------- painting the squishy mask ---------- */
+const undoStack = [];
+function pushUndo() {
+  undoStack.push(mctx.getImageData(0, 0, maskCv.width, maskCv.height));
+  if (undoStack.length > 12) undoStack.shift();
+}
+function brushPx() { return S.brush / 100 * MASK_LONG; }
+function stamp(x, y, r) {
+  mctx.globalCompositeOperation = S.tool === 'eraser' ? 'destination-out' : 'source-over';
+  if (S.hard) {
+    mctx.fillStyle = `rgba(${MASK_RGB},1)`;
+  } else {
+    const g = mctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, `rgba(${MASK_RGB},.55)`); g.addColorStop(0.5, `rgba(${MASK_RGB},.4)`); g.addColorStop(1, `rgba(${MASK_RGB},0)`);
+    mctx.fillStyle = g;
+  }
+  mctx.beginPath(); mctx.arc(x, y, r, 0, Math.PI * 2); mctx.fill();
+  mctx.globalCompositeOperation = 'source-over';
+}
+function strokeTo(a, b) {
+  const r = brushPx(), d = Math.hypot(b.x - a.x, b.y - a.y), stepLen = Math.max(1, r * 0.2);
+  const n = Math.max(1, Math.ceil(d / stepLen));
+  for (let i = 1; i <= n; i++) stamp(lerp(a.x, b.x, i / n), lerp(a.y, b.y, i / n), r);
+}
+function paintSpots(spots) {
+  mctx.clearRect(0, 0, maskCv.width, maskCv.height);
+  const L = Math.max(maskCv.width, maskCv.height);
+  for (const [x, y, r] of spots) {
+    const g = mctx.createRadialGradient(x * maskCv.width, y * maskCv.height, 0, x * maskCv.width, y * maskCv.height, r * L);
+    g.addColorStop(0, `rgba(${MASK_RGB},1)`); g.addColorStop(0.55, `rgba(${MASK_RGB},.9)`); g.addColorStop(1, `rgba(${MASK_RGB},0)`);
+    mctx.fillStyle = g; mctx.beginPath(); mctx.arc(x * maskCv.width, y * maskCv.height, r * L, 0, Math.PI * 2); mctx.fill();
+  }
+}
+function computeMobility() {
+  const { nx, ny, N } = M;
+  if (!N) return false;
+  const w = maskCv.width, h = maskCv.height, data = mctx.getImageData(0, 0, w, h).data;
+  let a = new Float32Array(N), t = new Float32Array(N);
+  for (let k = 0; k < N; k++) {
+    const x = Math.min(w - 1, Math.floor(M.uv[k * 2] * w)), y = Math.min(h - 1, Math.floor(M.uv[k * 2 + 1] * h));
+    a[k] = data[(y * w + x) * 4 + 3] / 255;
+  }
+  for (let pass = 0; pass < 2; pass++) {       // soften the edges a little
+    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+      let s = 0, ws = 0;
+      for (let oj = -1; oj <= 1; oj++) for (let oi = -1; oi <= 1; oi++) {
+        const ii = i + oi, jj = j + oj;
+        if (ii < 0 || jj < 0 || ii >= nx || jj >= ny) continue;
+        const wt = (oi ? 1 : 2) * (oj ? 1 : 2);
+        s += a[jj * nx + ii] * wt; ws += wt;
+      }
+      t[j * nx + i] = s / ws;
+    }
+    [a, t] = [t, a];
+  }
+  let any = false;
+  for (let k = 0; k < N; k++) { const m = a[k] > 0.3 ? 1 : 0; M.mob[k] = m; if (m) any = true; }
+  return any;
+}
+
+/* ---------- grabbing ---------- */
+const grabs = new Map();
+function local(e) { const b = stage.getBoundingClientRect(); return { x: e.clientX - b.left, y: e.clientY - b.top }; }
+function toNorm(p) { return { x: (p.x - S.rect.x) / S.rect.s, y: (p.y - S.rect.y) / S.rect.s }; }
+function toMask(p) { return { x: (p.x - S.rect.x) / S.rect.w * maskCv.width, y: (p.y - S.rect.y) / S.rect.h * maskCv.height }; }
+function maxStretch() { return lerp(0.24, 0.44, S.soft); }
+
+function makeGrab(q) {
+  const { N, rx, ry, dx, dy, mob } = M;
+  let best = -1, bd = Infinity;
+  for (let k = 0; k < N; k++) {
+    const ex = rx[k] + dx[k] - q.x, ey = ry[k] + dy[k] - q.y, d2 = ex * ex + ey * ey;
+    if (d2 < bd) { bd = d2; best = k; }
+  }
+  if (best < 0 || bd > (3 / GRID) ** 2) return null;
+  // the spot itself (or something right next to it) has to be squishy
+  const ax = rx[best], ay = ry[best], sig = 0.035, list = [], ws = [];
+  let near = 0;
+  for (let k = 0; k < N; k++) {
+    if (!mob[k]) continue;
+    const ex = rx[k] - ax, ey = ry[k] - ay, d2 = ex * ex + ey * ey;
+    if (d2 > 9 * sig * sig) continue;
+    const w = Math.exp(-d2 / (2 * sig * sig));
+    if (d2 < (2 / GRID) ** 2) near = 1;
+    if (w > 0.03) { list.push(k); ws.push(w); }
+  }
+  if (!near || !list.length) return null;
+  const now = performance.now();
+  return {
+    list: Int32Array.from(list), w: Float32Array.from(ws), ax, ay,
+    sx: q.x, sy: q.y, bx: dx[best], by: dy[best], tx: dx[best], ty: dy[best], gx: dx[best], gy: dy[best],
+    t0: now, lt: now, lq: q, vx: 0, vy: 0, moved: 0, peak: 0,
+  };
+}
+function updateGrab(g, q) {
+  const ex = q.x - g.sx, ey = q.y - g.sy, len = Math.hypot(ex, ey), L = maxStretch();
+  const f = len > 1e-6 ? L * Math.tanh(len / L) / len : 1;    // rubbery limit
+  g.gx = g.bx + ex * f; g.gy = g.by + ey * f;
+  g.moved = Math.max(g.moved, len); g.peak = Math.max(g.peak, len * f);
+  const now = performance.now(), dt = (now - g.lt) / 1000;
+  if (dt > 0.004) {
+    g.vx = lerp(g.vx, (q.x - g.lq.x) / dt, 0.5); g.vy = lerp(g.vy, (q.y - g.lq.y) / dt, 0.5);
+    g.lq = q; g.lt = now;
+  }
+}
+function releaseGrab(g, quiet) {
+  const now = performance.now();
+  if (!quiet && now - g.t0 < 220 && g.moved < 0.015) {
+    // a quick tap: push outwards from the spot for a little boing
+    for (let n = 0; n < g.list.length; n++) {
+      const k = g.list[n], ex = M.rx[k] - g.ax, ey = M.ry[k] - g.ay, d = Math.hypot(ex, ey) || 1;
+      M.vx[k] += g.w[n] * ex / d * 3.5; M.vy[k] += g.w[n] * ey / d * 3.5;
+    }
+    sndPoke();
+  } else {
+    const stale = now - g.lt > 70;
+    const vx = stale ? 0 : clamp(g.vx, -4, 4), vy = stale ? 0 : clamp(g.vy, -4, 4);
+    for (let n = 0; n < g.list.length; n++) { const k = g.list[n]; M.vx[k] += g.w[n] * vx * 0.35; M.vy[k] += g.w[n] * vy * 0.35; }
+    if (!quiet) sndRelease(clamp(g.peak / maxStretch(), 0, 1));
+  }
+}
+function releaseAll() { grabs.clear(); stage.classList.remove('grabbing'); }
+
+let nopeAt = -Infinity;
+function nope() {
+  sndNope();
+  const now = performance.now();
+  if (now - nopeAt > 2500) { toast('That part isn\'t squishy. Tap "Repaint" to add it.'); nopeAt = now; }
+}
+
+/* ---------- pointer input ---------- */
+let paintId = null, lastM = null;
+function moveRing(p) {
+  const d = S.brush / 100 * 2 * S.rect.s;
+  Object.assign(ring.style, { width: d + 'px', height: d + 'px', left: p.x + 'px', top: p.y + 'px' });
+  ring.hidden = false;
+}
+stage.addEventListener('pointerdown', (e) => {
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  if (S.mode === 'paint') {
+    if (paintId !== null) return;
+    e.preventDefault();
+    try { stage.setPointerCapture(e.pointerId); } catch {}
+    paintId = e.pointerId; pushUndo();
+    const p = local(e); lastM = toMask(p);
+    stamp(lastM.x, lastM.y, brushPx()); moveRing(p); dismissHint();
+  } else if (S.mode === 'play') {
+    if (grabs.size >= MAX_GRABS) return;
+    e.preventDefault();
+    const g = makeGrab(toNorm(local(e)));
+    if (!g) { nope(); return; }
+    try { stage.setPointerCapture(e.pointerId); } catch {}
+    grabs.set(e.pointerId, g); stage.classList.add('grabbing');
+    sndGrab(); dismissHint(); wake();
+  }
+});
+stage.addEventListener('pointermove', (e) => {
+  if (S.mode === 'paint') {
+    const p = local(e);
+    if (e.pointerType === 'mouse' || e.pointerId === paintId) moveRing(p);
+    if (e.pointerId === paintId && lastM) { const m = toMask(p); strokeTo(lastM, m); lastM = m; }
+  } else if (S.mode === 'play') {
+    const g = grabs.get(e.pointerId);
+    if (g) updateGrab(g, toNorm(local(e)));
+  }
+});
+function pointerEnd(e) {
+  if (e.pointerId === paintId) { paintId = null; lastM = null; if (e.pointerType !== 'mouse') ring.hidden = true; }
+  const g = grabs.get(e.pointerId);
+  if (g) {
+    releaseGrab(g, e.type === 'pointercancel'); grabs.delete(e.pointerId);
+    energy = 1;   // keep simulating until the wobble settles
+    if (!grabs.size) stage.classList.remove('grabbing');
+    wake();
+  }
+}
+stage.addEventListener('pointerup', pointerEnd);
+stage.addEventListener('pointercancel', pointerEnd);
+stage.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse' && paintId === null) ring.hidden = true; });
+stage.addEventListener('contextmenu', (e) => { if (S.mode !== 'empty') e.preventDefault(); });
+stage.addEventListener('wheel', (e) => {
+  if (S.mode !== 'paint') return;
+  e.preventDefault();
+  setBrush(S.brush + (e.deltaY < 0 ? 1 : -1));
+  moveRing(local(e));
+}, { passive: false });
+
+/* ---------- sound (made on the fly, no files) ---------- */
+let ac = null, master = null, noiseBuf = null;
+function audio() {
+  if (S.muted) return null;
+  if (!ac) {
+    try {
+      ac = new (window.AudioContext || window.webkitAudioContext)();
+      master = ac.createGain(); master.gain.value = 0.55; master.connect(ac.destination);
+    } catch { return null; }
+  }
+  if (ac.state === 'suspended') ac.resume();
+  return ac;
+}
+function env(a, g, t, peak, attack, end) {
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(peak, t + attack);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + end);
+}
+function sndGrab() {
+  const a = audio(); if (!a) return;
+  const t = a.currentTime;
+  if (!noiseBuf || noiseBuf.sampleRate !== a.sampleRate) {
+    noiseBuf = a.createBuffer(1, Math.floor(a.sampleRate * 0.2), a.sampleRate);
+    const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  }
+  const src = a.createBufferSource(); src.buffer = noiseBuf;
+  const f = a.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 2.4;
+  f.frequency.setValueAtTime(1500, t); f.frequency.exponentialRampToValueAtTime(380, t + 0.12);
+  const g = a.createGain(); env(a, g, t, 0.45, 0.012, 0.15);
+  src.connect(f).connect(g).connect(master); src.start(t); src.stop(t + 0.17);
+  const o = a.createOscillator(); o.type = 'sine';
+  o.frequency.setValueAtTime(220, t); o.frequency.exponentialRampToValueAtTime(120, t + 0.1);
+  const og = a.createGain(); env(a, og, t, 0.3, 0.01, 0.12);
+  o.connect(og).connect(master); o.start(t); o.stop(t + 0.14);
+}
+function sndRelease(amt) {
+  const a = audio(); if (!a) return;
+  amt = clamp(amt, 0.15, 1);
+  const t = a.currentTime, f0 = 250 - 90 * amt;
+  const o = a.createOscillator(); o.type = 'triangle';
+  o.frequency.setValueAtTime(f0 * 1.6, t); o.frequency.exponentialRampToValueAtTime(f0, t + 0.16);
+  const lfo = a.createOscillator(); lfo.frequency.value = lerp(11, 6, S.wobble);
+  const depth = a.createGain();
+  depth.gain.setValueAtTime(f0 * 0.14 * amt, t); depth.gain.exponentialRampToValueAtTime(0.01, t + 0.6);
+  lfo.connect(depth).connect(o.frequency);
+  const g = a.createGain(); env(a, g, t, 0.1 + 0.28 * amt, 0.008, 0.62);
+  o.connect(g).connect(master);
+  o.start(t); lfo.start(t); o.stop(t + 0.65); lfo.stop(t + 0.65);
+}
+function sndPoke() {
+  const a = audio(); if (!a) return;
+  const t = a.currentTime, o = a.createOscillator(); o.type = 'sine';
+  o.frequency.setValueAtTime(640, t); o.frequency.exponentialRampToValueAtTime(300, t + 0.08);
+  const g = a.createGain(); env(a, g, t, 0.3, 0.005, 0.1);
+  o.connect(g).connect(master); o.start(t); o.stop(t + 0.12);
+}
+function sndNope() {
+  const a = audio(); if (!a) return;
+  const t = a.currentTime, o = a.createOscillator(); o.type = 'square'; o.frequency.value = 150;
+  const g = a.createGain(); env(a, g, t, 0.05, 0.005, 0.07);
+  o.connect(g).connect(master); o.start(t); o.stop(t + 0.09);
+}
+
+/* ---------- GIF recording ---------- */
+const R = { on: false, t0: 0, last: 0, frames: [], times: [], cap: null, ctx: null, crop: null, pal: null, palN: 0, lut: null, transparent: true, bg: null };
+const BG = { cream: [251, 241, 230], green: [0, 255, 0] };
+
+function startRecording() {
+  if (S.mode !== 'play' || R.on || S.encoding || !texCanvas) return;
+  const r = S.rect, pad = Math.max(r.w, r.h) * 0.3;
+  const x0 = Math.max(0, r.x - pad), y0 = Math.max(0, r.y - pad);
+  const x1 = Math.min(S.cssW, r.x + r.w + pad), y1 = Math.min(S.cssH, r.y + r.h + pad);
+  const cw = x1 - x0, ch = y1 - y0, sc = Math.min(S.dpr, GIF_MAX_SIDE / Math.max(cw, ch));
+  R.cap = document.createElement('canvas');
+  R.cap.width = Math.max(2, Math.round(cw * sc)); R.cap.height = Math.max(2, Math.round(ch * sc));
+  R.ctx = R.cap.getContext('2d', { willReadFrequently: true });
+  R.crop = { x: x0 * S.dpr, y: y0 * S.dpr, w: cw * S.dpr, h: ch * S.dpr };
+  R.transparent = S.gifBg === 'transparent';
+  R.bg = BG[S.gifBg] || null;
+  R.pal = buildPalette(texCanvas, R.bg);
+  R.palN = R.pal.length;
+  R.lut = new Int16Array(1 << 18).fill(-1);
+  R.frames = []; R.times = []; R.t0 = performance.now(); R.last = -1e9; R.on = true;
+  document.body.classList.add('recording');
+  syncUI(); wake();
+}
+
+function captureFrame(now) {
+  if (now - R.last < GIF_FRAME_MS) return;
+  R.last = now;
+  const c = R.ctx, w = R.cap.width, h = R.cap.height;
+  if (R.bg) { c.fillStyle = `rgb(${R.bg.join(',')})`; c.fillRect(0, 0, w, h); } else c.clearRect(0, 0, w, h);
+  c.drawImage(cv, R.crop.x, R.crop.y, R.crop.w, R.crop.h, 0, 0, w, h);
+  const d = c.getImageData(0, 0, w, h).data, out = new Uint8Array(w * h);
+  const lut = R.lut, pal = R.pal, n = R.palN, from = R.transparent ? 1 : 0;
+  for (let i = 0, p = 0; i < out.length; i++, p += 4) {
+    if (R.transparent && d[p + 3] < 128) { out[i] = 0; continue; }
+    const key = ((d[p] >> 2) << 12) | ((d[p + 1] >> 2) << 6) | (d[p + 2] >> 2);
+    let v = lut[key];
+    if (v < 0) {
+      const r = (d[p] & 0xfc) | 2, g = (d[p + 1] & 0xfc) | 2, b = (d[p + 2] & 0xfc) | 2;
+      let bd = Infinity;
+      for (let j = from; j < n; j++) {
+        const q = pal[j], er = q[0] - r, eg = q[1] - g, eb = q[2] - b, dist = 2 * er * er + 4 * eg * eg + 3 * eb * eb;
+        if (dist < bd) { bd = dist; v = j; }
+      }
+      lut[key] = v;
+    }
+    out[i] = v;
+  }
+  R.frames.push(out); R.times.push(now);
+  const el = (now - R.t0) / 1000;
+  $('#recTime').textContent = el.toFixed(1);
+  $('#btnRec').style.setProperty('--p', clamp(el / GIF_MAX_S, 0, 1));
+  if (el >= GIF_MAX_S) stopRecording();
+}
+
+function stopRecording(cancel = false) {
+  if (!R.on) return;
+  R.on = false;
+  document.body.classList.remove('recording');
+  $('#btnRec').style.setProperty('--p', 0);
+  if (cancel || R.frames.length < 3) {
+    if (!cancel) toast('That was too short. Record for a bit longer.');
+    R.frames = []; R.times = []; syncUI(); return;
+  }
+  S.encoding = true; syncUI();
+  encodeGif((p) => { $('#recLabel').textContent = `Making GIF… ${Math.round(p * 100)}%`; })
+    .then(showGif)
+    .catch((err) => { console.error(err); toast("Couldn't make the GIF. Try a shorter clip."); })
+    .finally(() => { S.encoding = false; R.frames = []; R.times = []; syncUI(); });
+}
+
+/* colours for the GIF: slot 0 is either "see-through" or the background, the rest come from the picture */
+function buildPalette(src, bg) {
+  const sc = Math.min(1, 128 / Math.max(src.width, src.height));
+  const w = Math.max(1, Math.round(src.width * sc)), h = Math.max(1, Math.round(src.height * sc));
+  const t = document.createElement('canvas'); t.width = w; t.height = h;
+  const c = t.getContext('2d', { willReadFrequently: true });
+  c.drawImage(src, 0, 0, w, h);
+  const d = c.getImageData(0, 0, w, h).data, px = [];
+  for (let p = 0; p < d.length; p += 4) {
+    const a = d[p + 3];
+    if (bg) {
+      if (a < 8) continue;
+      const k = a / 255;
+      px.push(Math.round(d[p] * k + bg[0] * (1 - k)), Math.round(d[p + 1] * k + bg[1] * (1 - k)), Math.round(d[p + 2] * k + bg[2] * (1 - k)));
+    } else {
+      if (a < 128) continue;
+      px.push(d[p], d[p + 1], d[p + 2]);
+    }
+  }
+  if (!px.length) px.push(128, 128, 128);
+  const cols = medianCut(Uint8Array.from(px), 255);
+  return [bg ? bg.slice() : [0, 0, 0], ...cols];
+}
+function medianCut(px, k) {
+  const n = px.length / 3, ord = new Uint32Array(n);
+  for (let i = 0; i < n; i++) ord[i] = i;
+  const box = (s, e) => {
+    const mn = [255, 255, 255], mx = [0, 0, 0];
+    for (let i = s; i < e; i++) {
+      const q = ord[i] * 3;
+      for (let c = 0; c < 3; c++) { const v = px[q + c]; if (v < mn[c]) mn[c] = v; if (v > mx[c]) mx[c] = v; }
+    }
+    const rg = [mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]];
+    let ch = 0; if (rg[1] > rg[ch]) ch = 1; if (rg[2] > rg[ch]) ch = 2;
+    return { s, e, ch, score: rg[ch] * Math.sqrt(e - s) };
+  };
+  const boxes = [box(0, n)];
+  while (boxes.length < k) {
+    let bi = -1, bs = 0;
+    for (let i = 0; i < boxes.length; i++) if (boxes[i].e - boxes[i].s > 1 && boxes[i].score > bs) { bs = boxes[i].score; bi = i; }
+    if (bi < 0) break;
+    const b = boxes[bi], ch = b.ch;
+    ord.subarray(b.s, b.e).sort((x, y) => px[x * 3 + ch] - px[y * 3 + ch]);
+    const mid = (b.s + b.e) >> 1;
+    boxes.splice(bi, 1, box(b.s, mid), box(mid, b.e));
+  }
+  return boxes.map((b) => {
+    let r = 0, g = 0, bl = 0;
+    for (let i = b.s; i < b.e; i++) { const q = ord[i] * 3; r += px[q]; g += px[q + 1]; bl += px[q + 2]; }
+    const c = b.e - b.s;
+    return [Math.round(r / c), Math.round(g / c), Math.round(bl / c)];
+  });
+}
+
+class Bytes {
+  constructor(n = 1 << 16) { this.b = new Uint8Array(n); this.n = 0; }
+  need(k) {
+    if (this.n + k <= this.b.length) return;
+    let s = this.b.length * 2; while (s < this.n + k) s *= 2;
+    const nb = new Uint8Array(s); nb.set(this.b.subarray(0, this.n)); this.b = nb;
+  }
+  u8(v) { this.need(1); this.b[this.n++] = v; }
+  u16(v) { this.need(2); this.b[this.n++] = v & 255; this.b[this.n++] = (v >> 8) & 255; }
+  str(s) { for (let i = 0; i < s.length; i++) this.u8(s.charCodeAt(i)); }
+  arr(a) { this.need(a.length); this.b.set(a, this.n); this.n += a.length; }
+  view() { return this.b.subarray(0, this.n); }
+}
+
+/* GIF image data uses LZW compression */
+let lzwCode = null, lzwSeen = null, lzwGen = 0;
+function lzw(px, out) {
+  if (!lzwCode) { lzwCode = new Int16Array(1 << 20); lzwSeen = new Int32Array(1 << 20); }
+  const CLEAR = 256, EOI = 257;
+  let size = 9, next = 258, acc = 0, bits = 0, p = 0;
+  lzwGen++;
+  const buf = new Uint8Array(Math.ceil(px.length * 1.6) + 1024);
+  const emit = (code) => {
+    acc |= code << bits; bits += size;
+    while (bits >= 8) { buf[p++] = acc & 255; acc >>>= 8; bits -= 8; }
+  };
+  emit(CLEAR);
+  let prefix = px[0];
+  for (let i = 1; i < px.length; i++) {
+    const k = px[i], key = (prefix << 8) | k;
+    if (lzwSeen[key] === lzwGen) { prefix = lzwCode[key]; continue; }
+    emit(prefix);
+    if (next === 4096) { emit(CLEAR); size = 9; next = 258; lzwGen++; }
+    else { if (next >= (1 << size)) size++; lzwCode[key] = next++; lzwSeen[key] = lzwGen; }
+    prefix = k;
+  }
+  emit(prefix); emit(EOI);
+  if (bits > 0) buf[p++] = acc & 255;
+  out.u8(8);
+  for (let i = 0; i < p; i += 255) { const len = Math.min(255, p - i); out.u8(len); out.arr(buf.subarray(i, i + len)); }
+  out.u8(0);
+}
+
+function diffBox(a, b, w, h) {
+  let x0 = w, y0 = h, x1 = -1, y1 = -1;
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    for (let x = 0; x < w; x++) {
+      if (a[row + x] !== b[row + x]) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; y1 = y; }
+    }
+  }
+  return x1 < 0 ? null : { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+}
+
+async function encodeGif(onProgress) {
+  const w = R.cap.width, h = R.cap.height, frames = R.frames, times = R.times, tr = R.transparent;
+  const cs = times.map((t) => Math.round((t - times[0]) / 10));
+  const delays = frames.map((_, i) => (i < frames.length - 1 ? Math.max(2, cs[i + 1] - cs[i]) : 3));
+  // only store the part of each frame that changed (not possible with a see-through background)
+  const plan = [];
+  for (let i = 0; i < frames.length; i++) {
+    if (i === 0 || tr) { plan.push({ i, r: { x: 0, y: 0, w, h }, d: delays[i] }); continue; }
+    const r = diffBox(frames[i - 1], frames[i], w, h);
+    if (r) plan.push({ i, r, d: delays[i] }); else plan[plan.length - 1].d += delays[i];
+  }
+  const out = new Bytes(1 << 20);
+  out.str('GIF89a'); out.u16(w); out.u16(h); out.u8(0xf7); out.u8(0); out.u8(0);
+  for (let i = 0; i < 256; i++) { const c = R.pal[i] || [0, 0, 0]; out.u8(c[0]); out.u8(c[1]); out.u8(c[2]); }
+  out.u8(0x21); out.u8(0xff); out.u8(11); out.str('NETSCAPE2.0'); out.u8(3); out.u8(1); out.u16(0); out.u8(0);
+  for (let n = 0; n < plan.length; n++) {
+    const f = plan[n], src = frames[f.i];
+    out.u8(0x21); out.u8(0xf9); out.u8(4);
+    out.u8(tr ? (2 << 2) | 1 : (1 << 2)); out.u16(Math.min(65535, f.d)); out.u8(0); out.u8(0);
+    out.u8(0x2c); out.u16(f.r.x); out.u16(f.r.y); out.u16(f.r.w); out.u16(f.r.h); out.u8(0);
+    let px = src;
+    if (f.r.w !== w || f.r.h !== h) {
+      px = new Uint8Array(f.r.w * f.r.h);
+      for (let y = 0; y < f.r.h; y++) px.set(src.subarray((f.r.y + y) * w + f.r.x, (f.r.y + y) * w + f.r.x + f.r.w), y * f.r.w);
+    }
+    lzw(px, out);
+    onProgress((n + 1) / plan.length);
+    if (n % 3 === 2) await new Promise((r) => setTimeout(r, 0));
+  }
+  out.u8(0x3b);
+  return { blob: new Blob([out.view()], { type: 'image/gif' }), w, h, secs: (times[times.length - 1] - times[0]) / 1000 };
+}
+
+let gifUrl = null, gifFile = null;
+function showGif({ blob, w, h, secs }) {
+  if (gifUrl) URL.revokeObjectURL(gifUrl);
+  gifUrl = URL.createObjectURL(blob);
+  gifFile = new File([blob], 'squish.gif', { type: 'image/gif' });
+  $('#gifImg').src = gifUrl;
+  $('#gifSave').href = gifUrl;
+  const mb = blob.size / 1048576;
+  $('#gifInfo').textContent = `${w}×${h} · ${secs.toFixed(1)} s · ${mb >= 1 ? mb.toFixed(1) + ' MB' : Math.max(1, Math.round(blob.size / 1024)) + ' KB'}`;
+  let canShare = false;
+  try { canShare = !!(navigator.canShare && navigator.canShare({ files: [gifFile] })); } catch {}
+  $('#gifShare').hidden = !canShare;
+  $('#gifDialog').showModal();
+}
+
+/* ---------- UI wiring ---------- */
+function syncUI() {
+  $$('[data-tool]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.tool === S.tool)));
+  $$('[data-edge]').forEach((b) => b.setAttribute('aria-pressed', String((b.dataset.edge === 'hard') === S.hard)));
+  $('#brushSize').value = S.brush;
+  $('#soft').value = Math.round(S.soft * 100);
+  $('#wobble').value = Math.round(S.wobble * 100);
+  $('#gifBg').value = S.gifBg;
+  $('#btnSound').setAttribute('aria-pressed', String(!S.muted));
+  $('#btnSound').setAttribute('aria-label', S.muted ? 'Sound off' : 'Sound on');
+  $('#icoSoundOn').hidden = S.muted; $('#icoSoundOff').hidden = !S.muted;
+  $('#btnUndo').disabled = !undoStack.length;
+  const busy = R.on || S.encoding;
+  $('#btnRepaint').disabled = busy; $('#btnNewB').disabled = busy; $('#gifBg').disabled = busy;
+  $('#btnRec').disabled = S.encoding;
+  $('#recBadge').hidden = !R.on;
+  if (!S.encoding) $('#recLabel').textContent = R.on ? 'Stop' : 'Record GIF';
+}
+function setBrush(v) { S.brush = clamp(Math.round(v), 2, 24); $('#brushSize').value = S.brush; saveSettings(); }
+
+$('#btnPick').addEventListener('click', () => $('#file').click());
+$('#btnNewA').addEventListener('click', () => $('#file').click());
+$('#btnNewB').addEventListener('click', () => $('#file').click());
+$('#btnSample').addEventListener('click', openSample);
+$('#file').addEventListener('change', (e) => { const f = e.target.files && e.target.files[0]; e.target.value = ''; if (f) openBlob(f); });
+
+$$('[data-tool]').forEach((b) => b.addEventListener('click', () => { S.tool = b.dataset.tool; syncUI(); }));
+$$('[data-edge]').forEach((b) => b.addEventListener('click', () => { S.hard = b.dataset.edge === 'hard'; saveSettings(); syncUI(); }));
+$('#brushSize').addEventListener('input', (e) => setBrush(+e.target.value));
+$('#btnUndo').addEventListener('click', () => { const d = undoStack.pop(); if (d) mctx.putImageData(d, 0, 0); syncUI(); });
+$('#btnClear').addEventListener('click', () => { pushUndo(); mctx.clearRect(0, 0, maskCv.width, maskCv.height); syncUI(); });
+$('#btnAll').addEventListener('click', () => { pushUndo(); mctx.fillStyle = `rgba(${MASK_RGB},1)`; mctx.fillRect(0, 0, maskCv.width, maskCv.height); syncUI(); });
+$('#btnPlay').addEventListener('click', enterPlay);
+$('#btnRepaint').addEventListener('click', enterPaint);
+$('#soft').addEventListener('input', (e) => { S.soft = +e.target.value / 100; saveSettings(); });
+$('#wobble').addEventListener('input', (e) => { S.wobble = +e.target.value / 100; saveSettings(); });
+$('#gifBg').addEventListener('change', (e) => { S.gifBg = e.target.value; saveSettings(); });
+$('#btnRec').addEventListener('click', () => { if (R.on) stopRecording(); else startRecording(); });
+$('#btnSound').addEventListener('click', () => { S.muted = !S.muted; saveSettings(); syncUI(); if (!S.muted) sndPoke(); });
+
+const aboutDlg = $('#aboutDialog'), gifDlg = $('#gifDialog');
+$('#btnInfo').addEventListener('click', () => aboutDlg.showModal());
+$('#aboutClose').addEventListener('click', () => aboutDlg.close());
+$('#gifClose').addEventListener('click', () => gifDlg.close());
+$('#gifShare').addEventListener('click', async () => {
+  try { await navigator.share({ files: [gifFile], title: 'Squish' }); }
+  catch (err) { if (err && err.name !== 'AbortError') toast("Couldn't share. Try Download instead."); }
+});
+for (const d of [aboutDlg, gifDlg]) d.addEventListener('click', (e) => { if (e.target === d) d.close(); });
+
+// refresh the Undo button after each stroke
+document.addEventListener('pointerup', () => { if (S.mode === 'paint') syncUI(); });
+
+document.addEventListener('keydown', (e) => {
+  if (e.target.closest && e.target.closest('input,select,textarea') && e.key !== 'Escape') return;
+  if (S.mode === 'paint') {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); $('#btnUndo').click(); }
+    else if (e.key === 'b' || e.key === 'B') { S.tool = 'brush'; syncUI(); }
+    else if (e.key === 'e' || e.key === 'E') { S.tool = 'eraser'; syncUI(); }
+    else if (e.key === '[') setBrush(S.brush - 1);
+    else if (e.key === ']') setBrush(S.brush + 1);
+  }
+});
+
+// paste, drag & drop
+document.addEventListener('paste', (e) => {
+  const items = e.clipboardData ? [...e.clipboardData.items] : [];
+  const it = items.find((i) => i.kind === 'file' && i.type.startsWith('image/'));
+  if (it) { e.preventDefault(); openBlob(it.getAsFile()); }
+});
+const dropOverlay = $('#dropOverlay');
+let dragDepth = 0;
+const hasFiles = (e) => e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+window.addEventListener('dragenter', (e) => { if (!hasFiles(e)) return; e.preventDefault(); dragDepth++; dropOverlay.hidden = false; });
+window.addEventListener('dragover', (e) => { if (hasFiles(e)) e.preventDefault(); });
+window.addEventListener('dragleave', () => { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) dropOverlay.hidden = true; });
+window.addEventListener('drop', (e) => {
+  if (!hasFiles(e)) return;
+  e.preventDefault(); dragDepth = 0; dropOverlay.hidden = true;
+  const f = [...e.dataTransfer.files].find((x) => !x.type || x.type.startsWith('image/'));
+  if (f) openBlob(f); else toast("That doesn't look like a picture.");
+});
+
+cv.addEventListener('webglcontextlost', (e) => { e.preventDefault(); });
+cv.addEventListener('webglcontextrestored', () => { try { initGL(); uploadTexture(); uploadMesh(); requestRender(); } catch (err) { console.error(err); } });
+
+new ResizeObserver(layout).observe(stage);
+
+/* ---------- start ---------- */
+$('#emptyBao').src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(BAO_SVG);
+try { if (!initGL()) throw new Error('no webgl'); }
+catch (err) { console.error(err); gl = null; $('#glError').hidden = false; $('#btnPick').disabled = true; $('#btnSample').disabled = true; }
+syncUI(); layout();
+
+// handy for testing from the console
+window.squish = { openSample, state: S, mesh: M, startRecording, stopRecording };
+})();
+</script>
+</body>
+</html>
