@@ -56,6 +56,9 @@ button,select,a{touch-action:manipulation}
 #gl{position:absolute; inset:0; width:100%; height:100%; display:block}
 body[data-mode=play] #stage{cursor:grab}
 body[data-mode=play] #stage.grabbing{cursor:grabbing}
+#stage.panning{cursor:move}
+.btn.fit{position:absolute; right:12px; bottom:12px; min-height:38px; padding:0 16px; font-size:15px; box-shadow:0 4px 14px -6px rgba(58,42,48,.3)}
+body[data-mode=empty] .btn.fit{display:none!important}
 body[data-mode=paint] #stage{cursor:crosshair}
 #maskView{position:absolute; pointer-events:none; opacity:.55}
 #brushRing{
@@ -192,6 +195,7 @@ dialog h2{margin:0 0 12px; font:700 23px/1.2 var(--display)}
     <canvas id="maskView" hidden></canvas>
     <div id="brushRing" hidden></div>
     <p id="hint" class="hint"></p>
+    <button id="btnFit" class="btn fit" type="button" hidden>Fit</button>
     <div id="recBadge" hidden><i></i><span id="recTime">0.0</span>s</div>
     <section id="empty">
       <div class="drop-card">
@@ -272,6 +276,7 @@ dialog h2{margin:0 0 12px; font:700 23px/1.2 var(--display)}
     <li>Paint the parts you want squishy. Cheeks work great.</li>
     <li>Grab and pull, then let go. Tap for a little boing, or use two fingers at once.</li>
   </ol>
+  <p>Scroll (or pinch) to zoom in on a spot. Right-drag, or drag a part that isn't squishy, to move around. Zoom all the way out, or tap <b>Fit</b>, to centre the picture again.</p>
   <p>Hit <b>Record GIF</b> to save a clip. Pick a transparent or green-screen background if you want to use it on a stream or in another app.</p>
   <p>Everything happens in your browser. Your picture never leaves your device.</p>
   <p>Inspired by <a href="https://sabanogames.com/entertainments/moti_hoppe_maker/" target="_blank" rel="noopener">Mochi Hoppe Maker</a> by Saba no Games.</p>
@@ -287,11 +292,14 @@ const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const lerp = (a, b, t) => a + (b - a) * t;
+const smooth = (e0, e1, x) => { const t = clamp((x - e0) / (e1 - e0), 0, 1); return t * t * (3 - 2 * t); };
 
-const GRID = 72;            // mesh cells along the picture's long side
+const GRID = 96;            // mesh cells along the picture's long side
 const SUB = 1 / 240;        // physics step (s)
 const MASK_LONG = 512;      // paint mask resolution, long side
 const MAX_GRABS = 5;
+const MAX_BLOBS = 10;
+const ZOOM_MAX = 5;
 const GIF_FRAME_MS = 32;    // ~30 fps capture
 const GIF_MAX_S = 6;
 const GIF_MAX_SIDE = 420;
@@ -316,13 +324,14 @@ const BAO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512
 <path d="M234 322q11 13 22 0q11 13 22 0" fill="none" stroke="#3a2a30" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>`;
 /* squishy spots for Bao: [x, y, radius] as fractions of the picture */
-const BAO_SPOTS = [[146 / 512, 350 / 512, 0.13], [366 / 512, 350 / 512, 0.13], [266 / 512, 66 / 512, 0.11]];
+const BAO_SPOTS = [[144 / 512, 352 / 512, 0.13], [368 / 512, 352 / 512, 0.13], [266 / 512, 66 / 512, 0.11]];
 
 const stage = $('#stage'), cv = $('#gl'), maskCv = $('#maskView'), ring = $('#brushRing'), hintEl = $('#hint');
 const mctx = maskCv.getContext('2d', { willReadFrequently: true });
 
 const S = {
   mode: 'empty', aw: 1, ah: 1, rect: { x: 0, y: 0, w: 0, h: 0, s: 1 }, cssW: 1, cssH: 1, dpr: 1,
+  base: 1, view: { z: 1, ox: 0, oy: 0 }, gl2: false,
   tool: 'brush', hard: false, brush: 9, soft: 0.55, wobble: 0.6, muted: false, gifBg: 'transparent', encoding: false,
 };
 
@@ -351,9 +360,10 @@ function toast(msg, ms = 2600) {
   t.textContent = msg; t.classList.add('show');
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), ms);
 }
+const COARSE = !!(window.matchMedia && matchMedia('(pointer: coarse)').matches);
 const HINTS = {
-  paint: 'Paint the parts you want squishy. Cheeks work great!',
-  play: 'Grab and pull, then let go. Tap for a little boing.',
+  paint: COARSE ? 'Paint the parts you want squishy. Pinch to zoom.' : 'Paint the parts you want squishy. Scroll to zoom in.',
+  play: COARSE ? 'Grab and pull, then let go. Tap for a little boing.' : 'Grab and pull, then let go. Scroll to zoom in.',
 };
 function showHint(mode) { hintEl.textContent = HINTS[mode] || ''; hintEl.classList.remove('gone'); }
 function dismissHint() { hintEl.classList.add('gone'); }
@@ -373,8 +383,10 @@ void main(){
 }`;
 
 function initGL() {
-  gl = cv.getContext('webgl', { alpha: true, premultipliedAlpha: true, antialias: true, depth: true });
+  const opts = { alpha: true, premultipliedAlpha: true, antialias: true, depth: true };
+  gl = cv.getContext('webgl2', opts) || cv.getContext('webgl', opts);
   if (!gl) return false;
+  S.gl2 = typeof WebGL2RenderingContext !== 'undefined' && gl instanceof WebGL2RenderingContext;
   const sh = (type, src) => {
     const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
     if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
@@ -398,14 +410,16 @@ function uploadTexture() {
   gl.bindTexture(gl.TEXTURE_2D, tex);
   gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, texCanvas);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  // mipmaps keep the picture smooth at any zoom (WebGL 2 allows them for any picture size)
+  if (S.gl2) gl.generateMipmap(gl.TEXTURE_2D);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, S.gl2 ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 }
 
-/* ---------- mesh & physics state ---------- */
-const M = { nx: 0, ny: 0, N: 0, rx: null, ry: null, dx: null, dy: null, vx: null, vy: null, nvx: null, nvy: null, mob: null, pos: null, uv: null, idx: null };
+/* ---------- mesh & squish state ---------- */
+const M = { nx: 0, ny: 0, N: 0, rx: null, ry: null, dx: null, dy: null, mob: null, pos: null, uv: null, idx: null };
 
 function buildMesh() {
   let cols, rows;
@@ -415,8 +429,7 @@ function buildMesh() {
   Object.assign(M, {
     nx, ny, N,
     rx: new Float32Array(N), ry: new Float32Array(N), dx: new Float32Array(N), dy: new Float32Array(N),
-    vx: new Float32Array(N), vy: new Float32Array(N), nvx: new Float32Array(N), nvy: new Float32Array(N), mob: new Uint8Array(N),
-    pos: new Float32Array(N * 3), uv: new Float32Array(N * 2), idx: new Uint16Array(cols * rows * 6),
+    mob: new Float32Array(N), pos: new Float32Array(N * 3), uv: new Float32Array(N * 2), idx: new Uint16Array(cols * rows * 6),
   });
   for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
     const k = j * nx + i, u = i / cols, v = j / rows;
@@ -437,72 +450,120 @@ function uploadMesh() {
 }
 
 function zeroField() {
-  if (!M.N) return;
-  M.dx.fill(0); M.dy.fill(0); M.vx.fill(0); M.vy.fill(0);
+  blobs.length = 0;
+  if (M.N) { M.dx.fill(0); M.dy.fill(0); }
 }
 
-/* The squishy area behaves like a stretchy sheet: every painted point is tied to its neighbours
-   and gently pulled home; unpainted points stay put and hold the sheet's edge. */
-function step(dt) {
-  const { nx, ny, N, dx, dy, vx, vy, mob } = M;
-  const speed = lerp(1.7, 0.8, S.soft);          // how fast a wobble travels (picture widths / s)
-  const C = (speed * GRID) * (speed * GRID);
-  const damp = Math.exp(-lerp(13, 2.2, S.wobble) * dt);
-  const K = 24, VISC = 18;
-  const nvx = M.nvx, nvy = M.nvy;
-  for (let j = 0; j < ny; j++) {
-    const row = j * nx;
-    for (let i = 0; i < nx; i++) {
-      const k = row + i;
-      if (!mob[k]) continue;
-      const x = dx[k], y = dy[k];
-      const ux = vx[k], uy = vy[k];
-      let lx = -4 * x, ly = -4 * y, qx = -4 * ux, qy = -4 * uy;
-      if (i > 0) { lx += dx[k - 1]; ly += dy[k - 1]; qx += vx[k - 1]; qy += vy[k - 1]; }
-      if (i < nx - 1) { lx += dx[k + 1]; ly += dy[k + 1]; qx += vx[k + 1]; qy += vy[k + 1]; }
-      if (j > 0) { lx += dx[k - nx]; ly += dy[k - nx]; qx += vx[k - nx]; qy += vy[k - nx]; }
-      if (j < ny - 1) { lx += dx[k + nx]; ly += dy[k + nx]; qx += vx[k + nx]; qy += vy[k + nx]; }
-      // VISC smooths out fine ripples so the surface stays smooth while the big wobble carries on
-      nvx[k] = (ux + (C * lx - K * x + VISC * qx) * dt) * damp;
-      nvy[k] = (uy + (C * ly - K * y + VISC * qy) * dt) * damp;
+/* How a pull feels. Each grab moves a soft lump of the painted area as one piece, like a cheek
+   or jelly. The lump has a firm limit on how far it stretches, widens and puffs up a little as
+   you pull (so it never thins out into a strand), and jiggles back as one piece when let go. */
+function feel() {
+  return {
+    L: lerp(0.085, 0.15, S.soft),      // furthest a spot can be pulled (part of the picture's long side)
+    R: lerp(0.13, 0.19, S.soft),       // size of the lump that moves with your finger
+    grow: 0.6,                         // the lump widens as you pull
+    puff: 0.2,                         // and puffs up a little
+    hz: lerp(7.5, 3.8, S.soft),        // jiggle speed after you let go
+    zeta: lerp(0.36, 0.06, S.wobble),  // how quickly the jiggle dies down (lower = longer)
+  };
+}
+const HOLD_W = 38;    // how quickly a held lump catches up with your finger (higher = snappier)
+const blobs = [];
+
+function stepBlobs(dt, F) {
+  const w = 2 * Math.PI * F.hz, wp = w * 1.4;
+  for (const b of blobs) {
+    let tx = 0, ty = 0, ww = w, z = F.zeta;
+    if (b.held) { tx = b.tx; ty = b.ty; ww = HOLD_W; z = 1; }
+    b.vx += (ww * ww * (tx - b.dx) - 2 * z * ww * b.vx) * dt;
+    b.vy += (ww * ww * (ty - b.dy) - 2 * z * ww * b.vy) * dt;
+    b.dx += b.vx * dt; b.dy += b.vy * dt;
+    b.pv += (-wp * wp * b.p - 2 * F.zeta * wp * b.pv) * dt;
+    b.p += b.pv * dt;
+  }
+}
+function pruneBlobs() {
+  for (let i = blobs.length - 1; i >= 0; i--) {
+    const b = blobs[i];
+    if (!b.held && Math.abs(b.dx) + Math.abs(b.dy) < 3e-4 && Math.abs(b.vx) + Math.abs(b.vy) < 3e-3
+        && Math.abs(b.p) < 3e-4 && Math.abs(b.pv) < 3e-3) blobs.splice(i, 1);
+  }
+}
+function computeField(F) {
+  const { nx, ny, N, rx, ry, dx, dy, mob } = M;
+  dx.fill(0); dy.fill(0);
+  if (!blobs.length) return;
+  const hx = S.aw / (nx - 1), hy = S.ah / (ny - 1);
+  for (const b of blobs) {
+    const pull = Math.min(1.5, Math.hypot(b.dx, b.dy) / F.L);
+    const R = F.R * (1 + F.grow * pull), R2 = R * R, puff = F.puff * pull + b.p;
+    const i0 = Math.max(0, Math.floor((b.ax - R) / hx)), i1 = Math.min(nx - 1, Math.ceil((b.ax + R) / hx));
+    const j0 = Math.max(0, Math.floor((b.ay - R) / hy)), j1 = Math.min(ny - 1, Math.ceil((b.ay + R) / hy));
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const k = j * nx + i, m = mob[k];
+      if (!m) continue;
+      const ex = rx[k] - b.ax, ey = ry[k] - b.ay, r2 = (ex * ex + ey * ey) / R2;
+      if (r2 >= 1) continue;
+      const f = (1 - r2) * (1 - r2) * m;
+      dx[k] += f * (b.dx + ex * puff); dy[k] += f * (b.dy + ey * puff);
     }
   }
-  let energy = 0;
+  // several lumps pulled the same way can't add up past the limit
+  const L = F.L, extra = F.L * 0.25;
   for (let k = 0; k < N; k++) {
-    if (!mob[k]) continue;
-    vx[k] = nvx[k]; vy[k] = nvy[k];
-    dx[k] += vx[k] * dt; dy[k] += vy[k] * dt;
-    const e = Math.abs(dx[k]) + Math.abs(dy[k]) + (Math.abs(vx[k]) + Math.abs(vy[k])) * 0.05;
-    if (e > energy) energy = e;
+    const l = Math.hypot(dx[k], dy[k]);
+    if (l > L) { const c = (L + extra * Math.tanh((l - L) / extra)) / l; dx[k] *= c; dy[k] *= c; }
   }
-  const ease = 1 - Math.exp(-dt / 0.025);
-  for (const g of grabs.values()) {
-    g.tx += (g.gx - g.tx) * ease; g.ty += (g.gy - g.ty) * ease;
-    for (let n = 0; n < g.list.length; n++) {
-      const k = g.list[n], w = g.w[n];
-      dx[k] += (g.tx - dx[k]) * w; dy[k] += (g.ty - dy[k]) * w;
-      vx[k] *= 1 - w; vy[k] *= 1 - w;
-    }
-    energy = 1;
-  }
-  return energy;
 }
 
-/* ---------- layout & render ---------- */
+/* ---------- layout, zoom & render ---------- */
 function layout() {
   const b = stage.getBoundingClientRect();
   S.cssW = Math.max(1, b.width); S.cssH = Math.max(1, b.height);
   S.dpr = Math.min(2, window.devicePixelRatio || 1);
   const W = Math.round(S.cssW * S.dpr), H = Math.round(S.cssH * S.dpr);
   if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
-  if (M.N) {
-    const s = Math.min(S.cssW * 0.78 / S.aw, (S.cssH - 40) * 0.8 / S.ah);
-    const w = S.aw * s, h = S.ah * s;
-    S.rect = { x: (S.cssW - w) / 2, y: (S.cssH - h) / 2 + 12, w, h, s };
-    Object.assign(maskCv.style, { left: S.rect.x + 'px', top: S.rect.y + 'px', width: w + 'px', height: h + 'px' });
-  }
+  if (M.N) S.base = Math.min(S.cssW * 0.78 / S.aw, (S.cssH - 40) * 0.8 / S.ah);
+  applyView();
+}
+function viewCenter() { return { x: S.cssW / 2, y: S.cssH / 2 + 12 }; }
+function applyView() {
+  if (!M.N) { requestRender(); return; }
+  const v = S.view;
+  if (v.z <= 1.0001) { v.z = 1; v.ox = 0; v.oy = 0; }
+  const s = S.base * v.z, w = S.aw * s, h = S.ah * s;
+  // never let the picture slide completely out of view
+  const mx = Math.max(0, (w - S.cssW) / 2 + S.cssW * 0.3), my = Math.max(0, (h - S.cssH) / 2 + S.cssH * 0.3);
+  v.ox = clamp(v.ox, -mx, mx); v.oy = clamp(v.oy, -my, my);
+  const c = viewCenter();
+  S.rect = { x: c.x - w / 2 + v.ox, y: c.y - h / 2 + v.oy, w, h, s };
+  Object.assign(maskCv.style, { left: S.rect.x + 'px', top: S.rect.y + 'px', width: w + 'px', height: h + 'px' });
+  $('#btnFit').hidden = v.z <= 1;
   requestRender();
 }
+function zoomAt(p, nz) {
+  const v = S.view;
+  nz = clamp(nz, 1, ZOOM_MAX);
+  if (!M.N || Math.abs(nz - v.z) < 1e-4) return;
+  if (nz > v.z) {
+    // zoom in towards the pointer: the spot under it stays put
+    const r = S.rect, u = (p.x - r.x) / r.s, t = (p.y - r.y) / r.s, s = S.base * nz, c = viewCenter();
+    v.ox = p.x - u * s - (c.x - S.aw * s / 2);
+    v.oy = p.y - t * s - (c.y - S.ah * s / 2);
+  } else {
+    // zooming out drifts back to the middle, so fully zoomed out is always centred
+    const k = v.z > 1 ? (nz - 1) / (v.z - 1) : 0;
+    v.ox *= k; v.oy *= k;
+  }
+  v.z = nz;
+  applyView();
+}
+function panBy(ddx, ddy) {
+  if (S.view.z <= 1) return;
+  S.view.ox += ddx; S.view.oy += ddy;
+  applyView();
+}
+function resetView() { S.view.z = 1; S.view.ox = 0; S.view.oy = 0; applyView(); }
 
 function render() {
   if (!gl) return;
@@ -522,7 +583,7 @@ function render() {
       const xu = (rx[kr] + dx[kr] - rx[kl] - dx[kl]) / du, yu = (dy[kr] - dy[kl]) / du;
       const xv = (dx[kd] - dx[ku]) / dv, yv = (ry[kd] + dy[kd] - ry[ku] - dy[ku]) / dv;
       const squash = clamp(1 - (xu * yv - yu * xv), 0, 2);
-      const lift = Math.min(1, Math.hypot(dx[k], dy[k]) * 3);
+      const lift = Math.min(1, Math.hypot(dx[k], dy[k]) * 6);
       P[k * 3] = r.x + (rx[k] + dx[k]) * r.s;
       P[k * 3 + 1] = r.y + (ry[k] + dy[k]) * r.s;
       P[k * 3 + 2] = clamp(0.45 * squash - 0.5 * lift, -0.95, 0.95);
@@ -545,21 +606,23 @@ function render() {
 }
 
 /* ---------- main loop (sleeps when nothing moves) ---------- */
-let rafId = 0, lastT = 0, acc = 0, dirty = false, energy = 0;
+let rafId = 0, lastT = 0, acc = 0, dirty = false;
 function wake() { if (!rafId) { lastT = performance.now(); rafId = requestAnimationFrame(frame); } }
 function requestRender() { dirty = true; wake(); }
 function frame(now) {
   rafId = 0;
   const dt = Math.min(0.05, Math.max(0, (now - lastT) / 1000)); lastT = now;
   if (S.mode === 'play' && M.N) {
+    const F = feel();
     acc += dt; let n = 0;
-    while (acc >= SUB && n < 14) { energy = step(SUB); acc -= SUB; n++; }
+    while (acc >= SUB && n < 14) { stepBlobs(SUB, F); acc -= SUB; n++; }
     if (n === 14) acc = 0;
-    if (n && !grabs.size && energy < 2e-5) { zeroField(); energy = 0; }
+    if (n) pruneBlobs();
+    computeField(F);
   }
   render(); dirty = false;
   if (R.on) captureFrame(now);
-  if (R.on || grabs.size || (S.mode === 'play' && energy > 0) || dirty) wake();
+  if (R.on || (S.mode === 'play' && blobs.length) || dirty) wake();
 }
 
 /* ---------- loading pictures ---------- */
@@ -591,9 +654,7 @@ function setImage(im, isSvg) {
   if (!nw || !nh) { nw = 512; nh = 512; }
   const long = Math.max(nw, nh);
   S.aw = nw / long; S.ah = nh / long;
-  const b = stage.getBoundingClientRect();
-  const want = Math.ceil(Math.max(b.width, b.height) * Math.min(2, window.devicePixelRatio || 1));
-  const tl = isSvg ? clamp(want, 512, 2048) : Math.min(long, 2048, Math.max(want, 768));
+  const tl = isSvg ? 2048 : Math.min(long, 2048);   // full detail, so zooming in stays sharp
   texCanvas = document.createElement('canvas');
   texCanvas.width = Math.max(1, Math.round(S.aw * tl)); texCanvas.height = Math.max(1, Math.round(S.ah * tl));
   const c = texCanvas.getContext('2d');
@@ -603,6 +664,7 @@ function setImage(im, isSvg) {
   maskCv.width = Math.max(1, Math.round(MASK_LONG * S.aw)); maskCv.height = Math.max(1, Math.round(MASK_LONG * S.ah));
   mctx.clearRect(0, 0, maskCv.width, maskCv.height);
   undoStack.length = 0;
+  S.view = { z: 1, ox: 0, oy: 0 };
   layout();
 }
 
@@ -659,7 +721,7 @@ function computeMobility() {
     const x = Math.min(w - 1, Math.floor(M.uv[k * 2] * w)), y = Math.min(h - 1, Math.floor(M.uv[k * 2 + 1] * h));
     a[k] = data[(y * w + x) * 4 + 3] / 255;
   }
-  for (let pass = 0; pass < 2; pass++) {       // soften the edges a little
+  for (let pass = 0; pass < 3; pass++) {       // soften the edges a little
     for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
       let s = 0, ws = 0;
       for (let oj = -1; oj <= 1; oj++) for (let oi = -1; oi <= 1; oi++) {
@@ -673,72 +735,69 @@ function computeMobility() {
     [a, t] = [t, a];
   }
   let any = false;
-  for (let k = 0; k < N; k++) { const m = a[k] > 0.3 ? 1 : 0; M.mob[k] = m; if (m) any = true; }
+  for (let k = 0; k < N; k++) { const m = smooth(0.04, 0.6, a[k]); M.mob[k] = m; if (m > 0.12) any = true; }
   return any;
 }
 
 /* ---------- grabbing ---------- */
-const grabs = new Map();
+const grabs = new Map();    // pointer → the lump it's holding
 function local(e) { const b = stage.getBoundingClientRect(); return { x: e.clientX - b.left, y: e.clientY - b.top }; }
 function toNorm(p) { return { x: (p.x - S.rect.x) / S.rect.s, y: (p.y - S.rect.y) / S.rect.s }; }
 function toMask(p) { return { x: (p.x - S.rect.x) / S.rect.w * maskCv.width, y: (p.y - S.rect.y) / S.rect.h * maskCv.height }; }
-function maxStretch() { return lerp(0.24, 0.44, S.soft); }
 
-function makeGrab(q) {
-  const { N, rx, ry, dx, dy, mob } = M;
+function pickVertex(q) {
+  const { N, rx, ry, dx, dy } = M;
   let best = -1, bd = Infinity;
   for (let k = 0; k < N; k++) {
     const ex = rx[k] + dx[k] - q.x, ey = ry[k] + dy[k] - q.y, d2 = ex * ex + ey * ey;
     if (d2 < bd) { bd = d2; best = k; }
   }
-  if (best < 0 || bd > (3 / GRID) ** 2) return null;
-  // the spot itself (or something right next to it) has to be squishy
-  const ax = rx[best], ay = ry[best], sig = 0.035, list = [], ws = [];
-  let near = 0;
-  for (let k = 0; k < N; k++) {
-    if (!mob[k]) continue;
-    const ex = rx[k] - ax, ey = ry[k] - ay, d2 = ex * ex + ey * ey;
-    if (d2 > 9 * sig * sig) continue;
-    const w = Math.exp(-d2 / (2 * sig * sig));
-    if (d2 < (2 / GRID) ** 2) near = 1;
-    if (w > 0.03) { list.push(k); ws.push(w); }
-  }
-  if (!near || !list.length) return null;
-  const now = performance.now();
-  return {
-    list: Int32Array.from(list), w: Float32Array.from(ws), ax, ay,
-    sx: q.x, sy: q.y, bx: dx[best], by: dy[best], tx: dx[best], ty: dy[best], gx: dx[best], gy: dy[best],
-    t0: now, lt: now, lq: q, vx: 0, vy: 0, moved: 0, peak: 0,
-  };
+  return bd <= (3 / GRID) ** 2 ? best : -1;
 }
-function updateGrab(g, q) {
-  const ex = q.x - g.sx, ey = q.y - g.sy, len = Math.hypot(ex, ey), L = maxStretch();
-  const f = len > 1e-6 ? L * Math.tanh(len / L) / len : 1;    // rubbery limit
-  g.gx = g.bx + ex * f; g.gy = g.by + ey * f;
-  g.moved = Math.max(g.moved, len); g.peak = Math.max(g.peak, len * f);
-  const now = performance.now(), dt = (now - g.lt) / 1000;
-  if (dt > 0.004) {
-    g.vx = lerp(g.vx, (q.x - g.lq.x) / dt, 0.5); g.vy = lerp(g.vy, (q.y - g.lq.y) / dt, 0.5);
-    g.lq = q; g.lt = now;
-  }
-}
-function releaseGrab(g, quiet) {
-  const now = performance.now();
-  if (!quiet && now - g.t0 < 220 && g.moved < 0.015) {
-    // a quick tap: push outwards from the spot for a little boing
-    for (let n = 0; n < g.list.length; n++) {
-      const k = g.list[n], ex = M.rx[k] - g.ax, ey = M.ry[k] - g.ay, d = Math.hypot(ex, ey) || 1;
-      M.vx[k] += g.w[n] * ex / d * 3.5; M.vy[k] += g.w[n] * ey / d * 3.5;
+function startGrab(id, q) {
+  const k = pickVertex(q);
+  if (k < 0 || M.mob[k] < 0.12) return false;
+  const F = feel(), now = performance.now();
+  // catch a lump that's still jiggling, or start a new one
+  let b = blobs.find((o) => !o.held && Math.hypot(o.ax - M.rx[k], o.ay - M.ry[k]) < F.R * 0.45);
+  if (b) b.held = true;
+  else {
+    if (blobs.length >= MAX_BLOBS) {
+      const i = blobs.findIndex((o) => !o.held);
+      if (i < 0) return false;
+      blobs.splice(i, 1);
     }
-    sndPoke();
-  } else {
-    const stale = now - g.lt > 70;
-    const vx = stale ? 0 : clamp(g.vx, -4, 4), vy = stale ? 0 : clamp(g.vy, -4, 4);
-    for (let n = 0; n < g.list.length; n++) { const k = g.list[n]; M.vx[k] += g.w[n] * vx * 0.35; M.vy[k] += g.w[n] * vy * 0.35; }
-    if (!quiet) sndRelease(clamp(g.peak / maxStretch(), 0, 1));
+    b = { ax: M.rx[k], ay: M.ry[k], dx: 0, dy: 0, vx: 0, vy: 0, p: 0, pv: 0, held: true };
+    blobs.push(b);
+  }
+  Object.assign(b, { bx: b.dx, by: b.dy, tx: b.dx, ty: b.dy, sx: q.x, sy: q.y, t0: now, lt: now, lq: q, fx: 0, fy: 0, moved: 0, peak: 0 });
+  grabs.set(id, b);
+  return true;
+}
+function moveGrab(b, q) {
+  const ex = b.bx + q.x - b.sx, ey = b.by + q.y - b.sy, len = Math.hypot(ex, ey), L = feel().L;
+  const f = len > 1e-6 ? L * Math.tanh(len / L) / len : 1;    // harder to pull the further it goes, never past L
+  b.tx = ex * f; b.ty = ey * f;
+  b.moved = Math.max(b.moved, Math.hypot(q.x - b.sx, q.y - b.sy));
+  b.peak = Math.max(b.peak, len * f);
+  const now = performance.now(), dt = (now - b.lt) / 1000;
+  if (dt > 0.004) {
+    b.fx = lerp(b.fx, (q.x - b.lq.x) / dt, 0.5); b.fy = lerp(b.fy, (q.y - b.lq.y) / dt, 0.5);
+    b.lq = q; b.lt = now;
   }
 }
-function releaseAll() { grabs.clear(); stage.classList.remove('grabbing'); }
+function endGrab(b, quiet) {
+  b.held = false;
+  if (quiet) return;
+  const now = performance.now();
+  if (now - b.t0 < 220 && b.moved < 0.015) {
+    b.pv += 22; sndPoke();                       // a quick tap: a little boing
+  } else {
+    if (now - b.lt < 70) { b.vx += clamp(b.fx, -3, 3) * 0.3; b.vy += clamp(b.fy, -3, 3) * 0.3; }   // flick
+    sndRelease(clamp(b.peak / feel().L, 0, 1));
+  }
+}
+function releaseAll() { grabs.clear(); nav.clear(); blobs.length = 0; stage.classList.remove('grabbing', 'panning'); }
 
 let nopeAt = -Infinity;
 function nope() {
@@ -748,47 +807,78 @@ function nope() {
 }
 
 /* ---------- pointer input ---------- */
-let paintId = null, lastM = null;
+let paintId = null, lastM = null, lastP = null, strokeT0 = 0;
+const nav = new Map();      // pointers that are moving the view around (drag to pan, two fingers to pinch-zoom)
+const mid = (pts) => { let x = 0, y = 0; for (const p of pts) { x += p.x; y += p.y; } return { x: x / pts.length, y: y / pts.length }; };
+const spread = (pts) => { const c = mid(pts); let s = 0; for (const p of pts) s += Math.hypot(p.x - c.x, p.y - c.y); return s / pts.length; };
+function navAdd(id, p) { nav.set(id, p); stage.classList.add('panning'); }
+function navMove(id, p) {
+  const before = [...nav.values()];
+  nav.set(id, p);
+  const after = [...nav.values()], c0 = mid(before), c1 = mid(after);
+  if (after.length >= 2) {
+    const s0 = spread(before), s1 = spread(after);
+    if (s0 > 8 && s1 > 8) zoomAt(c1, S.view.z * s1 / s0);
+  }
+  panBy(c1.x - c0.x, c1.y - c0.y);
+}
 function moveRing(p) {
   const d = S.brush / 100 * 2 * S.rect.s;
   Object.assign(ring.style, { width: d + 'px', height: d + 'px', left: p.x + 'px', top: p.y + 'px' });
   ring.hidden = false;
 }
+
 stage.addEventListener('pointerdown', (e) => {
-  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  if (S.mode === 'empty' || e.target.closest('button')) return;
+  if (e.pointerType === 'mouse' && e.button > 2) return;
+  e.preventDefault();
+  const p = local(e), capture = () => { try { stage.setPointerCapture(e.pointerId); } catch {} };
+  if (e.pointerType === 'mouse' && e.button !== 0) { capture(); navAdd(e.pointerId, p); return; }   // right/middle drag pans
   if (S.mode === 'paint') {
-    if (paintId !== null) return;
-    e.preventDefault();
-    try { stage.setPointerCapture(e.pointerId); } catch {}
-    paintId = e.pointerId; pushUndo();
-    const p = local(e); lastM = toMask(p);
+    if (nav.size) { capture(); navAdd(e.pointerId, p); return; }
+    if (paintId !== null) {
+      if (e.pointerType !== 'touch') return;
+      // a second finger turns the stroke into a pinch (and drops the stroke if it only just started)
+      if (performance.now() - strokeT0 < 350 && undoStack.length) mctx.putImageData(undoStack.pop(), 0, 0);
+      navAdd(paintId, lastP); paintId = null; lastM = null; ring.hidden = true;
+      capture(); navAdd(e.pointerId, p); syncUI();
+      return;
+    }
+    capture();
+    paintId = e.pointerId; strokeT0 = performance.now(); pushUndo();
+    lastP = p; lastM = toMask(p);
     stamp(lastM.x, lastM.y, brushPx()); moveRing(p); dismissHint();
   } else if (S.mode === 'play') {
-    if (grabs.size >= MAX_GRABS) return;
-    e.preventDefault();
-    const g = makeGrab(toNorm(local(e)));
-    if (!g) { nope(); return; }
-    try { stage.setPointerCapture(e.pointerId); } catch {}
-    grabs.set(e.pointerId, g); stage.classList.add('grabbing');
-    sndGrab(); dismissHint(); wake();
+    if (grabs.size < MAX_GRABS && startGrab(e.pointerId, toNorm(p))) {
+      capture(); stage.classList.add('grabbing');
+      sndGrab(); dismissHint(); wake();
+      return;
+    }
+    if (S.view.z <= 1 && !nav.size) nope();
+    capture(); navAdd(e.pointerId, p);       // dragging a non-squishy spot moves the view when zoomed in
   }
 });
 stage.addEventListener('pointermove', (e) => {
+  const p = local(e);
+  if (nav.has(e.pointerId)) {
+    navMove(e.pointerId, p);
+    if (S.mode === 'paint' && e.pointerType === 'mouse') moveRing(p);
+    return;
+  }
   if (S.mode === 'paint') {
-    const p = local(e);
-    if (e.pointerType === 'mouse' || e.pointerId === paintId) moveRing(p);
-    if (e.pointerId === paintId && lastM) { const m = toMask(p); strokeTo(lastM, m); lastM = m; }
+    if ((e.pointerType === 'mouse' && !nav.size) || e.pointerId === paintId) moveRing(p);
+    if (e.pointerId === paintId && lastM) { const m = toMask(p); strokeTo(lastM, m); lastM = m; lastP = p; }
   } else if (S.mode === 'play') {
-    const g = grabs.get(e.pointerId);
-    if (g) updateGrab(g, toNorm(local(e)));
+    const b = grabs.get(e.pointerId);
+    if (b) moveGrab(b, toNorm(p));
   }
 });
 function pointerEnd(e) {
+  if (nav.delete(e.pointerId) && !nav.size) stage.classList.remove('panning');
   if (e.pointerId === paintId) { paintId = null; lastM = null; if (e.pointerType !== 'mouse') ring.hidden = true; }
-  const g = grabs.get(e.pointerId);
-  if (g) {
-    releaseGrab(g, e.type === 'pointercancel'); grabs.delete(e.pointerId);
-    energy = 1;   // keep simulating until the wobble settles
+  const b = grabs.get(e.pointerId);
+  if (b) {
+    endGrab(b, e.type === 'pointercancel'); grabs.delete(e.pointerId);
     if (!grabs.size) stage.classList.remove('grabbing');
     wake();
   }
@@ -798,10 +888,11 @@ stage.addEventListener('pointercancel', pointerEnd);
 stage.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse' && paintId === null) ring.hidden = true; });
 stage.addEventListener('contextmenu', (e) => { if (S.mode !== 'empty') e.preventDefault(); });
 stage.addEventListener('wheel', (e) => {
-  if (S.mode !== 'paint') return;
+  if (S.mode === 'empty') return;
   e.preventDefault();
-  setBrush(S.brush + (e.deltaY < 0 ? 1 : -1));
-  moveRing(local(e));
+  const p = local(e), unit = e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 400 : 1;
+  zoomAt(p, S.view.z * Math.exp(-e.deltaY * unit * 0.0018));
+  if (S.mode === 'paint') moveRing(p);
 }, { passive: false });
 
 /* ---------- sound (made on the fly, no files) ---------- */
@@ -1135,6 +1226,7 @@ $('#btnSound').addEventListener('click', () => { S.muted = !S.muted; saveSetting
 
 const aboutDlg = $('#aboutDialog'), gifDlg = $('#gifDialog');
 $('#btnInfo').addEventListener('click', () => aboutDlg.showModal());
+$('#btnFit').addEventListener('click', resetView);
 $('#aboutClose').addEventListener('click', () => aboutDlg.close());
 $('#gifClose').addEventListener('click', () => gifDlg.close());
 $('#gifShare').addEventListener('click', async () => {
@@ -1154,6 +1246,11 @@ document.addEventListener('keydown', (e) => {
     else if (e.key === 'e' || e.key === 'E') { S.tool = 'eraser'; syncUI(); }
     else if (e.key === '[') setBrush(S.brush - 1);
     else if (e.key === ']') setBrush(S.brush + 1);
+  }
+  if (S.mode !== 'empty') {
+    if (e.key === '+' || e.key === '=') zoomAt(viewCenter(), S.view.z * 1.25);
+    else if (e.key === '-' || e.key === '_') zoomAt(viewCenter(), S.view.z / 1.25);
+    else if (e.key === '0') resetView();
   }
 });
 
