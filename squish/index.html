@@ -275,6 +275,7 @@ dialog h2{margin:0 0 12px; font:700 23px/1.2 var(--display)}
     <li>Load a picture: drop it, paste it, or pick a file.</li>
     <li>Paint the parts you want squishy. Cheeks work great.</li>
     <li>Grab and pull, then let go. Tap for a little boing, or use two fingers at once.</li>
+    <li>Shake your phone to make every squishy part jiggle. On a computer, drag the browser window around (or press S).</li>
   </ol>
   <p>Scroll (or pinch) to zoom in on a spot. Right-drag, or drag a part that isn't squishy, to move around. Zoom all the way out, or tap <b>Fit</b>, to centre the picture again.</p>
   <p>Hit <b>Record GIF</b> to save a clip. Pick a transparent or green-screen background if you want to use it on a stream or in another app.</p>
@@ -363,7 +364,7 @@ function toast(msg, ms = 2600) {
 const COARSE = !!(window.matchMedia && matchMedia('(pointer: coarse)').matches);
 const HINTS = {
   paint: COARSE ? 'Paint the parts you want squishy. Pinch to zoom.' : 'Paint the parts you want squishy. Scroll to zoom in.',
-  play: COARSE ? 'Grab and pull, then let go. Tap for a little boing.' : 'Grab and pull, then let go. Scroll to zoom in.',
+  play: COARSE ? 'Grab and pull, then let go. Or shake your phone!' : 'Grab and pull, then let go. Scroll to zoom in.',
 };
 function showHint(mode) { hintEl.textContent = HINTS[mode] || ''; hintEl.classList.remove('gone'); }
 function dismissHint() { hintEl.classList.add('gone'); }
@@ -419,7 +420,7 @@ function uploadTexture() {
 }
 
 /* ---------- mesh & squish state ---------- */
-const M = { nx: 0, ny: 0, N: 0, rx: null, ry: null, dx: null, dy: null, mob: null, pos: null, uv: null, idx: null };
+const M = { nx: 0, ny: 0, N: 0, rx: null, ry: null, dx: null, dy: null, mob: null, dist: null, sw: null, pos: null, uv: null, idx: null };
 
 function buildMesh() {
   let cols, rows;
@@ -429,7 +430,7 @@ function buildMesh() {
   Object.assign(M, {
     nx, ny, N,
     rx: new Float32Array(N), ry: new Float32Array(N), dx: new Float32Array(N), dy: new Float32Array(N),
-    mob: new Float32Array(N), pos: new Float32Array(N * 3), uv: new Float32Array(N * 2), idx: new Uint16Array(cols * rows * 6),
+    mob: new Float32Array(N), dist: new Float32Array(N), sw: new Float32Array(N), pos: new Float32Array(N * 3), uv: new Float32Array(N * 2), idx: new Uint16Array(cols * rows * 6),
   });
   for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
     const k = j * nx + i, u = i / cols, v = j / rows;
@@ -451,6 +452,7 @@ function uploadMesh() {
 
 function zeroField() {
   blobs.length = 0;
+  Object.assign(shake, { x: 0, y: 0, vx: 0, vy: 0, at: -1e9 });
   if (M.N) { M.dx.fill(0); M.dy.fill(0); }
 }
 
@@ -459,7 +461,8 @@ function zeroField() {
    you pull (so it never thins out into a strand), and jiggles back as one piece when let go. */
 function feel() {
   return {
-    L: lerp(0.085, 0.15, S.soft),      // furthest a spot can be pulled (part of the picture's long side)
+    L: lerp(0.055, 0.1, S.soft),       // furthest anything can be pulled (part of the picture's long side);
+                                       // small patches get a smaller limit, see patchLimit()
     R: lerp(0.13, 0.19, S.soft),       // size of the lump that moves with your finger
     grow: 0.6,                         // the lump widens as you pull
     puff: 0.2,                         // and puffs up a little
@@ -468,7 +471,22 @@ function feel() {
   };
 }
 const HOLD_W = 38;    // how quickly a held lump catches up with your finger (higher = snappier)
+const SHAKE_DEPTH = 0.15;   // parts this far inside a squishy patch jiggle fully when shaken; the edges stay put
 const blobs = [];
+const shake = { x: 0, y: 0, vx: 0, vy: 0, ax: 0, ay: 0, at: -1e9 };   // one shared jiggle for shaking
+
+// A patch can't be pulled further than about its own thickness, so small cheeks stay cheek-sized.
+function patchLimit(k, F) {
+  const { nx, ny, rx, ry, dist } = M, hx = S.aw / (nx - 1), hy = S.ah / (ny - 1), R = F.R;
+  const i0 = Math.max(0, Math.floor((rx[k] - R) / hx)), i1 = Math.min(nx - 1, Math.ceil((rx[k] + R) / hx));
+  const j0 = Math.max(0, Math.floor((ry[k] - R) / hy)), j1 = Math.min(ny - 1, Math.ceil((ry[k] + R) / hy));
+  let thick = 0;
+  for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+    const q = j * nx + i;
+    if ((rx[q] - rx[k]) ** 2 + (ry[q] - ry[k]) ** 2 <= R * R && dist[q] > thick) thick = dist[q];
+  }
+  return clamp(0.6 * thick, 0.02, F.L);
+}
 
 function stepBlobs(dt, F) {
   const w = 2 * Math.PI * F.hz, wp = w * 1.4;
@@ -482,6 +500,22 @@ function stepBlobs(dt, F) {
     b.p += b.pv * dt;
   }
 }
+function stepShake(dt, F, now) {
+  const w = 2 * Math.PI * F.hz, z = Math.max(0.12, F.zeta), fresh = now - shake.at < 120;
+  const ax = fresh ? shake.ax : 0, ay = fresh ? shake.ay : 0;
+  shake.vx += (ax - w * w * shake.x - 2 * z * w * shake.vx) * dt;
+  shake.vy += (ay - w * w * shake.y - 2 * z * w * shake.vy) * dt;
+  shake.x += shake.vx * dt; shake.y += shake.vy * dt;
+}
+function shakeBusy(now) {
+  return now - shake.at < 120 || Math.abs(shake.x) + Math.abs(shake.y) > 2e-4 || Math.abs(shake.vx) + Math.abs(shake.vy) > 2e-3;
+}
+// ax/ay: how hard the picture is thrown (picture sizes per second², already pointing the way the jelly lags)
+function feedShake(ax, ay) {
+  if (S.mode !== 'play' || !M.N) return;
+  shake.ax = clamp(ax, -500, 500); shake.ay = clamp(ay, -500, 500); shake.at = performance.now();
+  wake();
+}
 function pruneBlobs() {
   for (let i = blobs.length - 1; i >= 0; i--) {
     const b = blobs[i];
@@ -492,7 +526,11 @@ function pruneBlobs() {
 function computeField(F) {
   const { nx, ny, N, rx, ry, dx, dy, mob } = M;
   dx.fill(0); dy.fill(0);
-  if (!blobs.length) return;
+  const sl = Math.hypot(shake.x, shake.y);
+  if (sl > 1e-6) {
+    const cap = F.L * 0.6, c = cap * Math.tanh(sl / cap) / sl, sx = shake.x * c, sy = shake.y * c, sw = M.sw;
+    for (let k = 0; k < N; k++) { const w = sw[k]; if (w) { dx[k] += w * sx; dy[k] += w * sy; } }
+  }
   const hx = S.aw / (nx - 1), hy = S.ah / (ny - 1);
   for (const b of blobs) {
     const pull = Math.min(1.5, Math.hypot(b.dx, b.dy) / F.L);
@@ -615,14 +653,14 @@ function frame(now) {
   if (S.mode === 'play' && M.N) {
     const F = feel();
     acc += dt; let n = 0;
-    while (acc >= SUB && n < 14) { stepBlobs(SUB, F); acc -= SUB; n++; }
+    while (acc >= SUB && n < 14) { stepBlobs(SUB, F); stepShake(SUB, F, now); acc -= SUB; n++; }
     if (n === 14) acc = 0;
     if (n) pruneBlobs();
     computeField(F);
   }
   render(); dirty = false;
   if (R.on) captureFrame(now);
-  if (R.on || (S.mode === 'play' && blobs.length) || dirty) wake();
+  if (R.on || (S.mode === 'play' && (blobs.length || shakeBusy(now))) || dirty) wake();
 }
 
 /* ---------- loading pictures ---------- */
@@ -736,6 +774,20 @@ function computeMobility() {
   }
   let any = false;
   for (let k = 0; k < N; k++) { const m = smooth(0.04, 0.6, a[k]); M.mob[k] = m; if (m > 0.12) any = true; }
+  // how deep each point sits inside its squishy patch (two-pass chamfer distance; outside the picture counts as edge)
+  const d = M.dist, SQ2 = Math.SQRT2;
+  for (let k = 0; k < N; k++) d[k] = M.mob[k] > 0.12 ? 1e9 : 0;
+  const at = (i, j) => (i < 0 || j < 0 || i >= nx || j >= ny ? 0 : d[j * nx + i]);
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+    const k = j * nx + i;
+    if (d[k]) d[k] = Math.min(d[k], at(i - 1, j) + 1, at(i, j - 1) + 1, at(i - 1, j - 1) + SQ2, at(i + 1, j - 1) + SQ2);
+  }
+  for (let j = ny - 1; j >= 0; j--) for (let i = nx - 1; i >= 0; i--) {
+    const k = j * nx + i;
+    if (d[k]) d[k] = Math.min(d[k], at(i + 1, j) + 1, at(i, j + 1) + 1, at(i + 1, j + 1) + SQ2, at(i - 1, j + 1) + SQ2);
+  }
+  const cell = S.aw / (nx - 1);
+  for (let k = 0; k < N; k++) { d[k] *= cell; M.sw[k] = M.mob[k] * smooth(0, SHAKE_DEPTH, d[k]); }
   return any;
 }
 
@@ -767,7 +819,7 @@ function startGrab(id, q) {
       if (i < 0) return false;
       blobs.splice(i, 1);
     }
-    b = { ax: M.rx[k], ay: M.ry[k], dx: 0, dy: 0, vx: 0, vy: 0, p: 0, pv: 0, held: true };
+    b = { ax: M.rx[k], ay: M.ry[k], dx: 0, dy: 0, vx: 0, vy: 0, p: 0, pv: 0, held: true, L: patchLimit(k, F) };
     blobs.push(b);
   }
   Object.assign(b, { bx: b.dx, by: b.dy, tx: b.dx, ty: b.dy, sx: q.x, sy: q.y, t0: now, lt: now, lq: q, fx: 0, fy: 0, moved: 0, peak: 0 });
@@ -775,8 +827,8 @@ function startGrab(id, q) {
   return true;
 }
 function moveGrab(b, q) {
-  const ex = b.bx + q.x - b.sx, ey = b.by + q.y - b.sy, len = Math.hypot(ex, ey), L = feel().L;
-  const f = len > 1e-6 ? L * Math.tanh(len / L) / len : 1;    // harder to pull the further it goes, never past L
+  const ex = b.bx + q.x - b.sx, ey = b.by + q.y - b.sy, len = Math.hypot(ex, ey), L = Math.min(b.L, feel().L);
+  const f = len > 1e-6 ? L * Math.tanh(len / (1.25 * L)) / len : 1;    // resists more the further it goes, never past L
   b.tx = ex * f; b.ty = ey * f;
   b.moved = Math.max(b.moved, Math.hypot(q.x - b.sx, q.y - b.sy));
   b.peak = Math.max(b.peak, len * f);
@@ -794,7 +846,7 @@ function endGrab(b, quiet) {
     b.pv += 22; sndPoke();                       // a quick tap: a little boing
   } else {
     if (now - b.lt < 70) { b.vx += clamp(b.fx, -3, 3) * 0.3; b.vy += clamp(b.fy, -3, 3) * 0.3; }   // flick
-    sndRelease(clamp(b.peak / feel().L, 0, 1));
+    sndRelease(clamp(b.peak / b.L, 0, 1));
   }
 }
 function releaseAll() { grabs.clear(); nav.clear(); blobs.length = 0; stage.classList.remove('grabbing', 'panning'); }
@@ -894,6 +946,58 @@ stage.addEventListener('wheel', (e) => {
   zoomAt(p, S.view.z * Math.exp(-e.deltaY * unit * 0.0018));
   if (S.mode === 'paint') moveRing(p);
 }, { passive: false });
+
+/* ---------- shaking: phone motion sensor, or dragging the browser window ---------- */
+const MOTION_GAIN = 4;      // phone: picture sizes/s² per m/s² of shaking
+const WINDOW_GAIN = 0.6;    // computer: how much moving the browser window shakes things
+let motionOn = false, motionAsked = false;
+const grav = { x: 0, y: 0, set: false };
+function onMotion(e) {
+  let x, y;
+  const a = e.acceleration, g = e.accelerationIncludingGravity;
+  if (a && a.x != null) { x = a.x; y = a.y; }
+  else if (g && g.x != null) {                         // no gravity-free reading: filter gravity out ourselves
+    if (!grav.set) { grav.x = g.x; grav.y = g.y; grav.set = true; }
+    grav.x = lerp(grav.x, g.x, 0.08); grav.y = lerp(grav.y, g.y, 0.08);
+    x = g.x - grav.x; y = g.y - grav.y;
+  } else return;
+  if (Math.hypot(x, y) < 1.2) return;                  // ignore a hand holding still
+  const ang = ((screen.orientation && screen.orientation.angle) ?? window.orientation ?? 0) % 360;
+  let sx, sy;                                           // turn phone axes into screen axes (x right, y down)
+  if (ang === 90) { sx = y; sy = x; }
+  else if (ang === 180 || ang === -180) { sx = -x; sy = y; }
+  else if (ang === 270 || ang === -90) { sx = -y; sy = -x; }
+  else { sx = x; sy = -y; }
+  feedShake(-sx * MOTION_GAIN, -sy * MOTION_GAIN);      // the jelly lags behind the way the phone moves
+}
+function enableMotion() {
+  if (motionOn || !('DeviceMotionEvent' in window)) return;
+  const DME = window.DeviceMotionEvent;
+  if (typeof DME.requestPermission === 'function') {    // iPhone / iPad ask once, after a tap
+    if (motionAsked) return;
+    motionAsked = true;
+    DME.requestPermission().then((r) => {
+      if (r === 'granted') { window.addEventListener('devicemotion', onMotion); motionOn = true; }
+    }).catch(() => { motionAsked = false; });
+  } else {
+    window.addEventListener('devicemotion', onMotion); motionOn = true;
+  }
+}
+document.addEventListener('pointerup', enableMotion);
+
+let winPrev = null;
+setInterval(() => {
+  if (S.mode !== 'play' || document.hidden) { winPrev = null; return; }
+  const now = performance.now(), x = window.screenX, y = window.screenY;
+  if (!winPrev) { winPrev = { x, y, t: now, vx: 0, vy: 0 }; return; }
+  const dt = (now - winPrev.t) / 1000;
+  if (dt <= 0.004) return;
+  const jx = x - winPrev.x, jy = y - winPrev.y;
+  if (Math.abs(jx) > 400 || Math.abs(jy) > 400) { winPrev = { x, y, t: now, vx: 0, vy: 0 }; return; }   // maximised etc.
+  const vx = jx / dt, vy = jy / dt, ax = (vx - winPrev.vx) / dt, ay = (vy - winPrev.vy) / dt;
+  if (jx || jy || winPrev.vx || winPrev.vy) feedShake(-ax / S.rect.s * WINDOW_GAIN, -ay / S.rect.s * WINDOW_GAIN);
+  winPrev = { x, y, t: now, vx, vy };
+}, 16);
 
 /* ---------- sound (made on the fly, no files) ---------- */
 let ac = null, master = null, noiseBuf = null;
@@ -1246,6 +1350,9 @@ document.addEventListener('keydown', (e) => {
     else if (e.key === 'e' || e.key === 'E') { S.tool = 'eraser'; syncUI(); }
     else if (e.key === '[') setBrush(S.brush - 1);
     else if (e.key === ']') setBrush(S.brush + 1);
+  }
+  if (S.mode === 'play' && (e.key === 's' || e.key === 'S')) {
+    shake.vx += (Math.random() < 0.5 ? -1 : 1) * 0.9; shake.vy -= 0.6; wake();
   }
   if (S.mode !== 'empty') {
     if (e.key === '+' || e.key === '=') zoomAt(viewCenter(), S.view.z * 1.25);
