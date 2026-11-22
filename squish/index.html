@@ -60,7 +60,8 @@ body[data-mode=play] #stage.grabbing{cursor:grabbing}
 .btn.fit{position:absolute; right:12px; bottom:12px; min-height:38px; padding:0 16px; font-size:15px; box-shadow:0 4px 14px -6px rgba(58,42,48,.3)}
 body[data-mode=empty] .btn.fit{display:none!important}
 body[data-mode=paint] #stage{cursor:crosshair}
-#maskView{position:absolute; pointer-events:none; opacity:.55}
+#maskView,#protView{position:absolute; pointer-events:none; opacity:.55}
+#brushRing.protect{border-color:#cfe4ff}
 #brushRing{
   position:absolute; left:0; top:0; border-radius:50%; pointer-events:none; transform:translate(-50%,-50%);
   border:2px solid #fff; box-shadow:0 0 0 1.5px rgba(58,42,48,.55), inset 0 0 0 1.5px rgba(58,42,48,.3);
@@ -193,6 +194,7 @@ dialog h2{margin:0 0 12px; font:700 23px/1.2 var(--display)}
   <main id="stage">
     <canvas id="gl"></canvas>
     <canvas id="maskView" hidden></canvas>
+    <canvas id="protView" hidden></canvas>
     <div id="brushRing" hidden></div>
     <p id="hint" class="hint"></p>
     <button id="btnFit" class="btn fit" type="button" hidden>Fit</button>
@@ -216,8 +218,9 @@ dialog h2{margin:0 0 12px; font:700 23px/1.2 var(--display)}
     <div class="panel" data-for="paint">
       <div class="row">
         <div class="seg" role="group" aria-label="Tool">
-          <button type="button" data-tool="brush" aria-pressed="true">Brush</button>
-          <button type="button" data-tool="eraser" aria-pressed="false">Eraser</button>
+          <button type="button" data-tool="brush" aria-pressed="true" title="Paint parts that squish (B)">Squishy</button>
+          <button type="button" data-tool="protect" aria-pressed="false" title="Paint parts that must never move (P)">Protect</button>
+          <button type="button" data-tool="eraser" aria-pressed="false" title="Erase either kind of paint (E)">Eraser</button>
         </div>
         <label class="slider">Size <input id="brushSize" type="range" min="0" max="100" step="1" value="60"></label>
         <div class="seg" role="group" aria-label="Brush edge">
@@ -273,7 +276,7 @@ dialog h2{margin:0 0 12px; font:700 23px/1.2 var(--display)}
   <h2>About Squish</h2>
   <ol>
     <li>Load a picture: drop it, paste it, or pick a file.</li>
-    <li>Paint the parts you want squishy. Cheeks work great.</li>
+    <li>Paint the parts you want squishy. Cheeks work great. Paint over eyes, hair or anything else that must stay still with <b>Protect</b>. Soft brushes fade the squish out gently at the edge; Hard ones give a crisp edge.</li>
     <li>Grab and pull, then let go. Tap for a little boing, or use two fingers at once.</li>
     <li>Shake your phone to make every squishy part jiggle. On a computer, drag the browser window around (or press S).</li>
   </ol>
@@ -300,12 +303,14 @@ const SUB = 1 / 240;        // physics step (s)
 const MASK_LONG = 1024;     // paint mask resolution, long side
 const MAX_GRABS = 5;
 const MAX_BLOBS = 10;        // the shader has room for this many lumps at once
-const BLUR = 0.018;          // how softly squishiness fades out at the edge of a painted area (part of the picture)
+const EDGE_BLUR = 0.005;     // a light smoothing of painted edges (part of the picture); the brush's own softness does the rest
+const PLATEAU = 0.3;         // the middle of a grabbed lump moves as one piece, so it feels like moving a body part
 const ZOOM_MAX = 5;
 const GIF_FRAME_MS = 32;    // ~30 fps capture
 const GIF_MAX_S = 6;
 const GIF_MAX_SIDE = 420;
 const MASK_RGB = '255,92,128';
+const PROT_RGB = '70,150,255';
 const BRUSH_MIN = 0.4, BRUSH_MAX = 25;   // brush radius, % of the picture's long side
 // the size slider is curved so the small end has plenty of fine steps
 const brushToSlider = (b) => Math.round(100 * Math.log(b / BRUSH_MIN) / Math.log(BRUSH_MAX / BRUSH_MIN));
@@ -334,6 +339,7 @@ const BAO_SPOTS = [[144 / 512, 352 / 512, 0.13], [368 / 512, 352 / 512, 0.13], [
 
 const stage = $('#stage'), cv = $('#gl'), maskCv = $('#maskView'), ring = $('#brushRing'), hintEl = $('#hint');
 const mctx = maskCv.getContext('2d', { willReadFrequently: true });
+const protCv = $('#protView'), pctx = protCv.getContext('2d', { willReadFrequently: true });
 
 const S = {
   mode: 'empty', aw: 1, ah: 1, rect: { x: 0, y: 0, w: 0, h: 0, s: 1 }, cssW: 1, cssH: 1, dpr: 1,
@@ -368,7 +374,7 @@ function toast(msg, ms = 2600) {
 }
 const COARSE = !!(window.matchMedia && matchMedia('(pointer: coarse)').matches);
 const HINTS = {
-  paint: COARSE ? 'Paint the parts you want squishy. Pinch to zoom.' : 'Paint the parts you want squishy. Scroll to zoom in.',
+  paint: COARSE ? 'Paint the squishy parts. Protect keeps parts still. Pinch to zoom.' : 'Paint the squishy parts. Use Protect on parts that must stay still. Scroll to zoom.',
   play: COARSE ? 'Grab and pull, then let go. Or shake your phone!' : 'Grab and pull, then let go. Scroll to zoom in.',
 };
 function showHint(mode) { hintEl.textContent = HINTS[mode] || ''; hintEl.classList.remove('gone'); }
@@ -381,7 +387,7 @@ let gl = null, prog = null, loc = {}, bufUV = null, bufIdx = null, bufW = null, 
    squishy each point was painted), plus the shared shake. Doing it here, on a fine grid, keeps stretched
    lines smooth even when zoomed right in. dispAt() further down is the same maths for one point. */
 const VS = `precision highp float;
-attribute vec2 aUV; attribute vec2 aW; attribute vec4 aWm; attribute vec4 aWs;
+attribute vec2 aUV; attribute vec3 aW; attribute vec4 aWm; attribute vec4 aWs;
 uniform vec2 uRes; uniform vec3 uRect; uniform vec2 uSize; uniform vec2 uStep; uniform float uFlat;
 uniform vec4 uBA[${MAX_BLOBS}]; uniform vec2 uBD[${MAX_BLOBS}]; uniform int uN; uniform vec2 uShake; uniform vec2 uCap;
 varying vec2 vUV;
@@ -392,8 +398,11 @@ vec2 disp(vec2 p, float m, float s) {
     if (i >= uN) break;
     vec4 b = uBA[i];
     vec2 e = p - b.xy;
-    float r2 = dot(e, e) / (b.z * b.z);
-    if (r2 < 1.0) { float f = (1.0 - r2) * (1.0 - r2) * m; d += f * (uBD[i] + e * b.w); }
+    float r = length(e) / b.z;
+    if (r < 1.0) {
+      float t = clamp((r - ${PLATEAU.toFixed(3)}) / ${(1 - PLATEAU).toFixed(3)}, 0.0, 1.0), f = (1.0 - t * t) * (1.0 - t * t) * m;
+      d += f * (uBD[i] + e * b.w);
+    }
   }
   float l = length(d);
   if (l > uCap.x) d *= (uCap.x + uCap.y * th((l - uCap.x) / uCap.y)) / l;
@@ -410,6 +419,7 @@ void main() {
     vec2 gy = (disp(p + vec2(0.0, uStep.y), aWm.w, aWs.w) - disp(p - vec2(0.0, uStep.y), aWm.z, aWs.z)) / (2.0 * uStep.y);
     float det = (1.0 + gx.x) * (1.0 + gy.y) - gx.y * gy.x;
     z = clamp(0.45 * clamp(1.0 - det, 0.0, 2.0) - 0.5 * min(1.0, length(d) * 6.0), -0.95, 0.95);
+    z = mix(z, -0.99, clamp(aW.z * 2.0, 0.0, 1.0));   // protected parts always stay visible on top
   }
   vec2 sp = uRect.xy + (p + d) * uRect.z;
   gl_Position = vec4(sp.x / uRes.x * 2.0 - 1.0, 1.0 - sp.y / uRes.y * 2.0, z, 1.0);
@@ -477,7 +487,7 @@ function buildMesh() {
     nx, ny, N, cols, rows,
     rx: new Float32Array(N), ry: new Float32Array(N), uv: new Float32Array(N * 2), idx: new Uint16Array(cols * rows * 6),
     mob: new Float32Array(N), sw: new Float32Array(N), dist: new Float32Array(N),
-    aW: new Float32Array(N * 2), aWm: new Float32Array(N * 4), aWs: new Float32Array(N * 4),
+    aW: new Float32Array(N * 3), aWm: new Float32Array(N * 4), aWs: new Float32Array(N * 4),
   });
   for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
     const k = j * nx + i, u = i / cols, v = j / rows;
@@ -513,7 +523,7 @@ function zeroField() {
    you pull (so it never thins out into a strand), and jiggles back as one piece when let go. */
 function feel() {
   return {
-    L: lerp(0.115, 0.21, S.soft),      // furthest anything can be pulled (part of the picture's long side);
+    L: lerp(0.11, 0.2, S.soft),        // furthest anything can be pulled (part of the picture's long side);
                                        // small patches get a smaller limit, see patchLimit()
     R: lerp(0.13, 0.19, S.soft),       // size of the lump that moves with your finger
     grow: 0.8,                         // the lump widens as you pull
@@ -537,7 +547,7 @@ function patchLimit(k, F) {
     const q = j * nx + i;
     if ((rx[q] - rx[k]) ** 2 + (ry[q] - ry[k]) ** 2 <= R * R && dist[q] > thick) thick = dist[q];
   }
-  return clamp(1.1 * thick, 0.04, F.L);
+  return clamp(1.4 * thick, 0.04, F.L);
 }
 
 function stepBlobs(dt, F) {
@@ -595,9 +605,9 @@ function dispAt(k, P) {
   const px = M.rx[k], py = M.ry[k], m = M.mob[k];
   let dx = M.sw[k] * P.sx, dy = M.sw[k] * P.sy;
   for (let i = 0; i < P.n; i++) {
-    const ex = px - uBA[i * 4], ey = py - uBA[i * 4 + 1], R = uBA[i * 4 + 2], r2 = (ex * ex + ey * ey) / (R * R);
-    if (r2 < 1) {
-      const f = (1 - r2) * (1 - r2) * m, pf = uBA[i * 4 + 3];
+    const ex = px - uBA[i * 4], ey = py - uBA[i * 4 + 1], R = uBA[i * 4 + 2], r = Math.hypot(ex, ey) / R;
+    if (r < 1) {
+      const t = clamp((r - PLATEAU) / (1 - PLATEAU), 0, 1), f = (1 - t * t) * (1 - t * t) * m, pf = uBA[i * 4 + 3];
       dx += f * (uBD[i * 2] + ex * pf); dy += f * (uBD[i * 2 + 1] + ey * pf);
     }
   }
@@ -627,7 +637,7 @@ function applyView() {
   v.ox = clamp(v.ox, -mx, mx); v.oy = clamp(v.oy, -my, my);
   const c = viewCenter();
   S.rect = { x: c.x - w / 2 + v.ox, y: c.y - h / 2 + v.oy, w, h, s };
-  Object.assign(maskCv.style, { left: S.rect.x + 'px', top: S.rect.y + 'px', width: w + 'px', height: h + 'px' });
+  for (const c of [maskCv, protCv]) Object.assign(c.style, { left: S.rect.x + 'px', top: S.rect.y + 'px', width: w + 'px', height: h + 'px' });
   $('#btnFit').hidden = v.z <= 1;
   requestRender();
 }
@@ -679,7 +689,7 @@ function render() {
     if (l < 0) return;
     gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.vertexAttribPointer(l, n, gl.FLOAT, false, 0, 0); gl.enableVertexAttribArray(l);
   };
-  attrib(bufUV, loc.uv, 2); attrib(bufW, loc.w, 2); attrib(bufWm, loc.wm, 4); attrib(bufWs, loc.ws, 4);
+  attrib(bufUV, loc.uv, 2); attrib(bufW, loc.w, 3); attrib(bufWm, loc.wm, 4); attrib(bufWs, loc.ws, 4);
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, bufIdx);
   gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
   // pass 0: solid pixels with depth; pass 1: soft edges blended on top
@@ -745,8 +755,8 @@ function setImage(im, isSvg) {
   c.imageSmoothingQuality = 'high';
   c.drawImage(im, 0, 0, texCanvas.width, texCanvas.height);
   uploadTexture(); buildMesh(); uploadMesh();
-  maskCv.width = Math.max(1, Math.round(MASK_LONG * S.aw)); maskCv.height = Math.max(1, Math.round(MASK_LONG * S.ah));
-  mctx.clearRect(0, 0, maskCv.width, maskCv.height);
+  for (const c of [maskCv, protCv]) { c.width = Math.max(1, Math.round(MASK_LONG * S.aw)); c.height = Math.max(1, Math.round(MASK_LONG * S.ah)); }
+  mctx.clearRect(0, 0, maskCv.width, maskCv.height); pctx.clearRect(0, 0, protCv.width, protCv.height);
   undoStack.length = 0;
   S.view = { z: 1, ox: 0, oy: 0 };
   layout();
@@ -756,31 +766,40 @@ function setImage(im, isSvg) {
 function setMode(m) { S.mode = m; document.body.dataset.mode = m; syncUI(); requestRender(); }
 function enterPaint() {
   stopRecording(true); releaseAll(); zeroField();
-  maskCv.hidden = false; setMode('paint'); showHint('paint');
+  maskCv.hidden = false; protCv.hidden = false; setMode('paint'); showHint('paint');
 }
 function enterPlay() {
   if (!computeMobility()) { toast('Paint some squishy parts first, or tap "Paint all".'); return; }
-  zeroField(); maskCv.hidden = true; ring.hidden = true; setMode('play'); showHint('play');
+  zeroField(); maskCv.hidden = true; protCv.hidden = true; ring.hidden = true; setMode('play'); showHint('play');
 }
 
 /* ---------- painting the squishy mask ---------- */
 const undoStack = [];
 function pushUndo() {
-  undoStack.push(mctx.getImageData(0, 0, maskCv.width, maskCv.height));
+  undoStack.push({ m: mctx.getImageData(0, 0, maskCv.width, maskCv.height), p: pctx.getImageData(0, 0, protCv.width, protCv.height) });
   if (undoStack.length > 10) undoStack.shift();
 }
 function brushPx() { return S.brush / 100 * MASK_LONG; }
-function stamp(x, y, r) {
-  mctx.globalCompositeOperation = S.tool === 'eraser' ? 'destination-out' : 'source-over';
-  if (S.hard) {
-    mctx.fillStyle = `rgba(${MASK_RGB},1)`;
-  } else {
-    const g = mctx.createRadialGradient(x, y, 0, x, y, r);
-    g.addColorStop(0, `rgba(${MASK_RGB},.55)`); g.addColorStop(0.5, `rgba(${MASK_RGB},.4)`); g.addColorStop(1, `rgba(${MASK_RGB},0)`);
-    mctx.fillStyle = g;
+function restoreUndo(d) { mctx.putImageData(d.m, 0, 0); pctx.putImageData(d.p, 0, 0); }
+// Soft brushes fade out smoothly towards their rim (so the squish fades out too); hard ones are solid.
+function dab(ctx, x, y, r, rgb) {
+  if (S.hard) ctx.fillStyle = `rgba(${rgb},1)`;
+  else {
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, `rgba(${rgb},.6)`); g.addColorStop(0.25, `rgba(${rgb},.52)`); g.addColorStop(0.5, `rgba(${rgb},.32)`);
+    g.addColorStop(0.75, `rgba(${rgb},.1)`); g.addColorStop(1, `rgba(${rgb},0)`);
+    ctx.fillStyle = g;
   }
-  mctx.beginPath(); mctx.arc(x, y, r, 0, Math.PI * 2); mctx.fill();
-  mctx.globalCompositeOperation = 'source-over';
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+}
+function stamp(x, y, r) {
+  // Squishy paint and Protect paint never overlap: each one wipes the other where it goes.
+  const own = S.tool === 'protect' ? pctx : S.tool === 'brush' ? mctx : null;
+  for (const [ctx, rgb] of [[mctx, MASK_RGB], [pctx, PROT_RGB]]) {
+    ctx.globalCompositeOperation = ctx === own ? 'source-over' : 'destination-out';
+    dab(ctx, x, y, r, rgb);
+    ctx.globalCompositeOperation = 'source-over';
+  }
 }
 function strokeTo(a, b) {
   const r = brushPx(), d = Math.hypot(b.x - a.x, b.y - a.y), stepLen = Math.max(1, r * 0.2);
@@ -806,11 +825,13 @@ function computeMobility() {
   tc.imageSmoothingEnabled = true; tc.imageSmoothingQuality = 'high';
   tc.drawImage(maskCv, 0, 0, nx, ny);
   const data = tc.getImageData(0, 0, nx, ny).data, mob = M.mob, sw = M.sw, d = M.dist;
-  for (let k = 0; k < N; k++) mob[k] = Math.min(1, data[k * 4 + 3] / 255 * 1.5);   // keep the soft brush's gentle edge
+  tc.clearRect(0, 0, nx, ny); tc.drawImage(protCv, 0, 0, nx, ny);
+  const pdata = tc.getImageData(0, 0, nx, ny).data, prot = new Float32Array(N);
+  for (let k = 0; k < N; k++) { mob[k] = Math.min(1, data[k * 4 + 3] / 255 * 1.25); prot[k] = Math.min(1, pdata[k * 4 + 3] / 255 * 1.4); }
   const cell = S.aw / cols;
-  blur(mob, nx, ny, BLUR / cell);
-  // the blur softens the edges; this gently lifts the middle of small patches back up to fully squishy
-  for (let k = 0; k < N; k++) { const x = Math.min(1, mob[k]); mob[k] = x * (2 - x); }
+  blur(mob, nx, ny, EDGE_BLUR / cell);
+  blur(prot, nx, ny, EDGE_BLUR / cell);
+  for (let k = 0; k < N; k++) mob[k] *= (1 - prot[k]) * (1 - prot[k]);   // protected parts never move
   let any = false;
   for (let k = 0; k < N; k++) if (mob[k] > 0.12) { any = true; break; }
   // how deep each point sits inside its squishy patch (two-pass chamfer distance; outside the picture counts as edge)
@@ -826,11 +847,11 @@ function computeMobility() {
     if (d[k]) d[k] = Math.min(d[k], at(i + 1, j) + 1, at(i, j + 1) + 1, at(i + 1, j + 1) + SQ2, at(i - 1, j + 1) + SQ2);
   }
   for (let k = 0; k < N; k++) { d[k] *= cell; sw[k] = mob[k] * smooth(0, SHAKE_DEPTH, d[k]); }
-  blur(sw, nx, ny, BLUR / cell);
+  blur(sw, nx, ny, EDGE_BLUR / cell);
   // what the shader needs per point: its own weights plus its left/right/up/down neighbours'
   for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
     const k = j * nx + i, l = i > 0 ? k - 1 : k, r = i < nx - 1 ? k + 1 : k, u = j > 0 ? k - nx : k, w = j < ny - 1 ? k + nx : k;
-    M.aW[k * 2] = mob[k]; M.aW[k * 2 + 1] = sw[k];
+    M.aW[k * 3] = mob[k]; M.aW[k * 3 + 1] = sw[k]; M.aW[k * 3 + 2] = prot[k];
     M.aWm[k * 4] = mob[l]; M.aWm[k * 4 + 1] = mob[r]; M.aWm[k * 4 + 2] = mob[u]; M.aWm[k * 4 + 3] = mob[w];
     M.aWs[k * 4] = sw[l]; M.aWs[k * 4 + 1] = sw[r]; M.aWs[k * 4 + 2] = sw[u]; M.aWs[k * 4 + 3] = sw[w];
   }
@@ -944,6 +965,7 @@ function navMove(id, p) {
 function moveRing(p) {
   const d = Math.max(4, S.brush / 100 * 2 * S.rect.s);
   Object.assign(ring.style, { width: d + 'px', height: d + 'px', left: p.x + 'px', top: p.y + 'px' });
+  ring.classList.toggle('protect', S.tool === 'protect');
   ring.hidden = false;
 }
 
@@ -958,7 +980,7 @@ stage.addEventListener('pointerdown', (e) => {
     if (paintId !== null) {
       if (e.pointerType !== 'touch') return;
       // a second finger turns the stroke into a pinch (and drops the stroke if it only just started)
-      if (performance.now() - strokeT0 < 350 && undoStack.length) mctx.putImageData(undoStack.pop(), 0, 0);
+      if (performance.now() - strokeT0 < 350 && undoStack.length) restoreUndo(undoStack.pop());
       navAdd(paintId, lastP); paintId = null; lastM = null; ring.hidden = true;
       capture(); navAdd(e.pointerId, p); syncUI();
       return;
@@ -1384,8 +1406,10 @@ $('#file').addEventListener('change', (e) => { const f = e.target.files && e.tar
 $$('[data-tool]').forEach((b) => b.addEventListener('click', () => { S.tool = b.dataset.tool; syncUI(); }));
 $$('[data-edge]').forEach((b) => b.addEventListener('click', () => { S.hard = b.dataset.edge === 'hard'; saveSettings(); syncUI(); }));
 $('#brushSize').addEventListener('input', (e) => { S.brush = sliderToBrush(+e.target.value); saveSettings(); });
-$('#btnUndo').addEventListener('click', () => { const d = undoStack.pop(); if (d) mctx.putImageData(d, 0, 0); syncUI(); });
-$('#btnClear').addEventListener('click', () => { pushUndo(); mctx.clearRect(0, 0, maskCv.width, maskCv.height); syncUI(); });
+$('#btnUndo').addEventListener('click', () => { const d = undoStack.pop(); if (d) restoreUndo(d); syncUI(); });
+$('#btnClear').addEventListener('click', () => {
+  pushUndo(); mctx.clearRect(0, 0, maskCv.width, maskCv.height); pctx.clearRect(0, 0, protCv.width, protCv.height); syncUI();
+});
 $('#btnAll').addEventListener('click', () => { pushUndo(); mctx.fillStyle = `rgba(${MASK_RGB},1)`; mctx.fillRect(0, 0, maskCv.width, maskCv.height); syncUI(); });
 $('#btnPlay').addEventListener('click', enterPlay);
 $('#btnRepaint').addEventListener('click', enterPaint);
@@ -1415,6 +1439,7 @@ document.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); $('#btnUndo').click(); }
     else if (e.key === 'b' || e.key === 'B') { S.tool = 'brush'; syncUI(); }
     else if (e.key === 'e' || e.key === 'E') { S.tool = 'eraser'; syncUI(); }
+    else if (e.key === 'p' || e.key === 'P') { S.tool = 'protect'; syncUI(); }
     else if (e.key === '[') setBrush(S.brush / 1.2);
     else if (e.key === ']') setBrush(S.brush * 1.2);
   }
