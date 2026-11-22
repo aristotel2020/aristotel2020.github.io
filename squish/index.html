@@ -219,7 +219,7 @@ dialog h2{margin:0 0 12px; font:700 23px/1.2 var(--display)}
           <button type="button" data-tool="brush" aria-pressed="true">Brush</button>
           <button type="button" data-tool="eraser" aria-pressed="false">Eraser</button>
         </div>
-        <label class="slider">Size <input id="brushSize" type="range" min="2" max="24" value="9"></label>
+        <label class="slider">Size <input id="brushSize" type="range" min="0" max="100" step="1" value="60"></label>
         <div class="seg" role="group" aria-label="Brush edge">
           <button type="button" data-edge="soft" aria-pressed="true">Soft</button>
           <button type="button" data-edge="hard" aria-pressed="false">Hard</button>
@@ -297,15 +297,19 @@ const smooth = (e0, e1, x) => { const t = clamp((x - e0) / (e1 - e0), 0, 1); ret
 
 const GRID = 255;           // grid cells along the picture's long side (the graphics card bends this grid)
 const SUB = 1 / 240;        // physics step (s)
-const MASK_LONG = 512;      // paint mask resolution, long side
+const MASK_LONG = 1024;     // paint mask resolution, long side
 const MAX_GRABS = 5;
 const MAX_BLOBS = 10;        // the shader has room for this many lumps at once
-const BLUR = 0.02;           // how softly squishiness fades out at the edge of a painted area (part of the picture)
+const BLUR = 0.018;          // how softly squishiness fades out at the edge of a painted area (part of the picture)
 const ZOOM_MAX = 5;
 const GIF_FRAME_MS = 32;    // ~30 fps capture
 const GIF_MAX_S = 6;
 const GIF_MAX_SIDE = 420;
 const MASK_RGB = '255,92,128';
+const BRUSH_MIN = 0.4, BRUSH_MAX = 25;   // brush radius, % of the picture's long side
+// the size slider is curved so the small end has plenty of fine steps
+const brushToSlider = (b) => Math.round(100 * Math.log(b / BRUSH_MIN) / Math.log(BRUSH_MAX / BRUSH_MIN));
+const sliderToBrush = (v) => BRUSH_MIN * Math.pow(BRUSH_MAX / BRUSH_MIN, v / 100);
 
 /* Bao, the sample character */
 const BAO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
@@ -334,7 +338,7 @@ const mctx = maskCv.getContext('2d', { willReadFrequently: true });
 const S = {
   mode: 'empty', aw: 1, ah: 1, rect: { x: 0, y: 0, w: 0, h: 0, s: 1 }, cssW: 1, cssH: 1, dpr: 1,
   base: 1, view: { z: 1, ox: 0, oy: 0 }, gl2: false,
-  tool: 'brush', hard: false, brush: 9, soft: 0.55, wobble: 0.6, muted: false, gifBg: 'transparent', encoding: false,
+  tool: 'brush', hard: false, brush: 6, soft: 0.55, wobble: 0.6, muted: false, gifBg: 'transparent', encoding: false,
 };
 
 /* ---------- settings ---------- */
@@ -342,7 +346,7 @@ try {
   const saved = JSON.parse(localStorage.getItem('squish.settings') || '{}');
   if (typeof saved.soft === 'number') S.soft = clamp(saved.soft, 0, 1);
   if (typeof saved.wobble === 'number') S.wobble = clamp(saved.wobble, 0, 1);
-  if (typeof saved.brush === 'number') S.brush = clamp(saved.brush, 2, 24);
+  if (typeof saved.brush === 'number') S.brush = clamp(saved.brush, BRUSH_MIN, BRUSH_MAX);
   if (typeof saved.muted === 'boolean') S.muted = saved.muted;
   if (typeof saved.hard === 'boolean') S.hard = saved.hard;
   if (['transparent', 'cream', 'green'].includes(saved.gifBg)) S.gifBg = saved.gifBg;
@@ -509,10 +513,10 @@ function zeroField() {
    you pull (so it never thins out into a strand), and jiggles back as one piece when let go. */
 function feel() {
   return {
-    L: lerp(0.055, 0.1, S.soft),       // furthest anything can be pulled (part of the picture's long side);
+    L: lerp(0.12, 0.22, S.soft),       // furthest anything can be pulled (part of the picture's long side);
                                        // small patches get a smaller limit, see patchLimit()
     R: lerp(0.13, 0.19, S.soft),       // size of the lump that moves with your finger
-    grow: 0.6,                         // the lump widens as you pull
+    grow: 0.8,                         // the lump widens as you pull
     puff: 0.2,                         // and puffs up a little
     hz: lerp(7.5, 3.8, S.soft),        // jiggle speed after you let go
     zeta: lerp(0.36, 0.06, S.wobble),  // how quickly the jiggle dies down (lower = longer)
@@ -533,7 +537,7 @@ function patchLimit(k, F) {
     const q = j * nx + i;
     if ((rx[q] - rx[k]) ** 2 + (ry[q] - ry[k]) ** 2 <= R * R && dist[q] > thick) thick = dist[q];
   }
-  return clamp(0.6 * thick, 0.02, F.L);
+  return clamp(1.4 * thick, 0.04, F.L);
 }
 
 function stepBlobs(dt, F) {
@@ -582,7 +586,7 @@ function packField(F) {
     uBA[i * 4 + 3] = F.puff * pull + b.p;              // and puffs up a little
     uBD[i * 2] = b.dx; uBD[i * 2 + 1] = b.dy;
   }
-  const sl = Math.hypot(shake.x, shake.y), cap = F.L * 0.6, c = sl > 1e-6 ? cap * Math.tanh(sl / cap) / sl : 0;
+  const sl = Math.hypot(shake.x, shake.y), cap = F.L * 0.4, c = sl > 1e-6 ? cap * Math.tanh(sl / cap) / sl : 0;
   // several lumps (or a lump plus shaking) can't add up much past the limit
   return { n, sx: shake.x * c, sy: shake.y * c, L: F.L, extra: F.L * 0.25 };
 }
@@ -763,7 +767,7 @@ function enterPlay() {
 const undoStack = [];
 function pushUndo() {
   undoStack.push(mctx.getImageData(0, 0, maskCv.width, maskCv.height));
-  if (undoStack.length > 12) undoStack.shift();
+  if (undoStack.length > 10) undoStack.shift();
 }
 function brushPx() { return S.brush / 100 * MASK_LONG; }
 function stamp(x, y, r) {
@@ -802,9 +806,11 @@ function computeMobility() {
   tc.imageSmoothingEnabled = true; tc.imageSmoothingQuality = 'high';
   tc.drawImage(maskCv, 0, 0, nx, ny);
   const data = tc.getImageData(0, 0, nx, ny).data, mob = M.mob, sw = M.sw, d = M.dist;
-  for (let k = 0; k < N; k++) mob[k] = smooth(0.04, 0.6, data[k * 4 + 3] / 255);
+  for (let k = 0; k < N; k++) mob[k] = Math.min(1, data[k * 4 + 3] / 255 * 1.5);   // keep the soft brush's gentle edge
   const cell = S.aw / cols;
   blur(mob, nx, ny, BLUR / cell);
+  // the blur softens the edges; this gently lifts the middle of small patches back up to fully squishy
+  for (let k = 0; k < N; k++) { const x = Math.min(1, mob[k]); mob[k] = x * (2 - x); }
   let any = false;
   for (let k = 0; k < N; k++) if (mob[k] > 0.12) { any = true; break; }
   // how deep each point sits inside its squishy patch (two-pass chamfer distance; outside the picture counts as edge)
@@ -936,7 +942,7 @@ function navMove(id, p) {
   panBy(c1.x - c0.x, c1.y - c0.y);
 }
 function moveRing(p) {
-  const d = S.brush / 100 * 2 * S.rect.s;
+  const d = Math.max(4, S.brush / 100 * 2 * S.rect.s);
   Object.assign(ring.style, { width: d + 'px', height: d + 'px', left: p.x + 'px', top: p.y + 'px' });
   ring.hidden = false;
 }
@@ -1353,7 +1359,7 @@ function showGif({ blob, w, h, secs }) {
 function syncUI() {
   $$('[data-tool]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.tool === S.tool)));
   $$('[data-edge]').forEach((b) => b.setAttribute('aria-pressed', String((b.dataset.edge === 'hard') === S.hard)));
-  $('#brushSize').value = S.brush;
+  $('#brushSize').value = brushToSlider(S.brush);
   $('#soft').value = Math.round(S.soft * 100);
   $('#wobble').value = Math.round(S.wobble * 100);
   $('#gifBg').value = S.gifBg;
@@ -1367,7 +1373,7 @@ function syncUI() {
   $('#recBadge').hidden = !R.on;
   if (!S.encoding) $('#recLabel').textContent = R.on ? 'Stop' : 'Record GIF';
 }
-function setBrush(v) { S.brush = clamp(Math.round(v), 2, 24); $('#brushSize').value = S.brush; saveSettings(); }
+function setBrush(v) { S.brush = clamp(v, BRUSH_MIN, BRUSH_MAX); $('#brushSize').value = brushToSlider(S.brush); saveSettings(); }
 
 $('#btnPick').addEventListener('click', () => $('#file').click());
 $('#btnNewA').addEventListener('click', () => $('#file').click());
@@ -1377,7 +1383,7 @@ $('#file').addEventListener('change', (e) => { const f = e.target.files && e.tar
 
 $$('[data-tool]').forEach((b) => b.addEventListener('click', () => { S.tool = b.dataset.tool; syncUI(); }));
 $$('[data-edge]').forEach((b) => b.addEventListener('click', () => { S.hard = b.dataset.edge === 'hard'; saveSettings(); syncUI(); }));
-$('#brushSize').addEventListener('input', (e) => setBrush(+e.target.value));
+$('#brushSize').addEventListener('input', (e) => { S.brush = sliderToBrush(+e.target.value); saveSettings(); });
 $('#btnUndo').addEventListener('click', () => { const d = undoStack.pop(); if (d) mctx.putImageData(d, 0, 0); syncUI(); });
 $('#btnClear').addEventListener('click', () => { pushUndo(); mctx.clearRect(0, 0, maskCv.width, maskCv.height); syncUI(); });
 $('#btnAll').addEventListener('click', () => { pushUndo(); mctx.fillStyle = `rgba(${MASK_RGB},1)`; mctx.fillRect(0, 0, maskCv.width, maskCv.height); syncUI(); });
@@ -1409,8 +1415,8 @@ document.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); $('#btnUndo').click(); }
     else if (e.key === 'b' || e.key === 'B') { S.tool = 'brush'; syncUI(); }
     else if (e.key === 'e' || e.key === 'E') { S.tool = 'eraser'; syncUI(); }
-    else if (e.key === '[') setBrush(S.brush - 1);
-    else if (e.key === ']') setBrush(S.brush + 1);
+    else if (e.key === '[') setBrush(S.brush / 1.2);
+    else if (e.key === ']') setBrush(S.brush * 1.2);
   }
   if (S.mode === 'play' && (e.key === 's' || e.key === 'S')) {
     shake.vx += (Math.random() < 0.5 ? -1 : 1) * 0.9; shake.vy -= 0.6; wake();
@@ -1455,6 +1461,15 @@ syncUI(); layout();
 // handy for testing from the console
 window.squish = {
   openSample, state: S, mesh: M, startRecording, stopRecording,
+  // how far the point you grabbed has moved (for testing)
+  grabbedDisp() {
+    const P = packField(feel()); let m = 0;
+    for (const b of blobs) {
+      const i = Math.round(b.ax / S.aw * M.cols), j = Math.round(b.ay / S.ah * M.rows), d = dispAt(j * M.nx + i, P);
+      m = Math.max(m, Math.hypot(d[0], d[1]));
+    }
+    return m;
+  },
   maxDisp() { const P = packField(feel()); let m = 0; for (let k = 0; k < M.N; k++) { const d = dispAt(k, P); m = Math.max(m, Math.hypot(d[0], d[1])); } return m; },
 };
 })();
