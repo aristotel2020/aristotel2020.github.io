@@ -513,7 +513,7 @@ function zeroField() {
    you pull (so it never thins out into a strand), and jiggles back as one piece when let go. */
 function feel() {
   return {
-    L: lerp(0.12, 0.22, S.soft),       // furthest anything can be pulled (part of the picture's long side);
+    L: lerp(0.115, 0.21, S.soft),      // furthest anything can be pulled (part of the picture's long side);
                                        // small patches get a smaller limit, see patchLimit()
     R: lerp(0.13, 0.19, S.soft),       // size of the lump that moves with your finger
     grow: 0.8,                         // the lump widens as you pull
@@ -537,7 +537,7 @@ function patchLimit(k, F) {
     const q = j * nx + i;
     if ((rx[q] - rx[k]) ** 2 + (ry[q] - ry[k]) ** 2 <= R * R && dist[q] > thick) thick = dist[q];
   }
-  return clamp(1.4 * thick, 0.04, F.L);
+  return clamp(1.1 * thick, 0.04, F.L);
 }
 
 function stepBlobs(dt, F) {
