@@ -295,11 +295,12 @@ const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const lerp = (a, b, t) => a + (b - a) * t;
 const smooth = (e0, e1, x) => { const t = clamp((x - e0) / (e1 - e0), 0, 1); return t * t * (3 - 2 * t); };
 
-const GRID = 96;            // mesh cells along the picture's long side
+const GRID = 255;           // grid cells along the picture's long side (the graphics card bends this grid)
 const SUB = 1 / 240;        // physics step (s)
 const MASK_LONG = 512;      // paint mask resolution, long side
 const MAX_GRABS = 5;
-const MAX_BLOBS = 10;
+const MAX_BLOBS = 10;        // the shader has room for this many lumps at once
+const BLUR = 0.02;           // how softly squishiness fades out at the edge of a painted area (part of the picture)
 const ZOOM_MAX = 5;
 const GIF_FRAME_MS = 32;    // ~30 fps capture
 const GIF_MAX_S = 6;
@@ -370,10 +371,45 @@ function showHint(mode) { hintEl.textContent = HINTS[mode] || ''; hintEl.classLi
 function dismissHint() { hintEl.classList.add('gone'); }
 
 /* ---------- WebGL ---------- */
-let gl = null, prog = null, loc = {}, bufPos = null, bufUV = null, bufIdx = null, tex = null, texCanvas = null;
+let gl = null, prog = null, loc = {}, bufUV = null, bufIdx = null, bufW = null, bufWm = null, bufWs = null, tex = null, texCanvas = null;
 
-const VS = `attribute vec3 aPos; attribute vec2 aUV; uniform vec2 uRes; varying vec2 vUV;
-void main(){ vUV = aUV; gl_Position = vec4(aPos.x / uRes.x * 2.0 - 1.0, 1.0 - aPos.y / uRes.y * 2.0, aPos.z, 1.0); }`;
+/* The vertex shader bends the picture's grid: every grabbed lump pulls nearby points along (weighted by how
+   squishy each point was painted), plus the shared shake. Doing it here, on a fine grid, keeps stretched
+   lines smooth even when zoomed right in. dispAt() further down is the same maths for one point. */
+const VS = `precision highp float;
+attribute vec2 aUV; attribute vec2 aW; attribute vec4 aWm; attribute vec4 aWs;
+uniform vec2 uRes; uniform vec3 uRect; uniform vec2 uSize; uniform vec2 uStep; uniform float uFlat;
+uniform vec4 uBA[${MAX_BLOBS}]; uniform vec2 uBD[${MAX_BLOBS}]; uniform int uN; uniform vec2 uShake; uniform vec2 uCap;
+varying vec2 vUV;
+float th(float x) { float e = exp(-2.0 * x); return (1.0 - e) / (1.0 + e); }
+vec2 disp(vec2 p, float m, float s) {
+  vec2 d = s * uShake;
+  for (int i = 0; i < ${MAX_BLOBS}; i++) {
+    if (i >= uN) break;
+    vec4 b = uBA[i];
+    vec2 e = p - b.xy;
+    float r2 = dot(e, e) / (b.z * b.z);
+    if (r2 < 1.0) { float f = (1.0 - r2) * (1.0 - r2) * m; d += f * (uBD[i] + e * b.w); }
+  }
+  float l = length(d);
+  if (l > uCap.x) d *= (uCap.x + uCap.y * th((l - uCap.x) / uCap.y)) / l;
+  return d;
+}
+void main() {
+  vUV = aUV;
+  vec2 p = aUV * uSize, d = vec2(0.0);
+  float z = 0.0;
+  if (uFlat < 0.5) {
+    d = disp(p, aW.x, aW.y);
+    // how squashed this spot is: folded-over parts tuck in behind, pulled-out parts sit on top
+    vec2 gx = (disp(p + vec2(uStep.x, 0.0), aWm.y, aWs.y) - disp(p - vec2(uStep.x, 0.0), aWm.x, aWs.x)) / (2.0 * uStep.x);
+    vec2 gy = (disp(p + vec2(0.0, uStep.y), aWm.w, aWs.w) - disp(p - vec2(0.0, uStep.y), aWm.z, aWs.z)) / (2.0 * uStep.y);
+    float det = (1.0 + gx.x) * (1.0 + gy.y) - gx.y * gy.x;
+    z = clamp(0.45 * clamp(1.0 - det, 0.0, 2.0) - 0.5 * min(1.0, length(d) * 6.0), -0.95, 0.95);
+  }
+  vec2 sp = uRect.xy + (p + d) * uRect.z;
+  gl_Position = vec4(sp.x / uRes.x * 2.0 - 1.0, 1.0 - sp.y / uRes.y * 2.0, z, 1.0);
+}`;
 // pass 0 draws solid pixels with depth; pass 1 blends the soft edges on top without writing depth
 const FS = `precision mediump float; varying vec2 vUV; uniform sampler2D uTex; uniform float uPass;
 void main(){
@@ -398,11 +434,14 @@ function initGL() {
   gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS));
   gl.linkProgram(prog);
   if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+  const A = (n) => gl.getAttribLocation(prog, n), U = (n) => gl.getUniformLocation(prog, n);
   loc = {
-    pos: gl.getAttribLocation(prog, 'aPos'), uv: gl.getAttribLocation(prog, 'aUV'),
-    res: gl.getUniformLocation(prog, 'uRes'), tex: gl.getUniformLocation(prog, 'uTex'), pass: gl.getUniformLocation(prog, 'uPass'),
+    uv: A('aUV'), w: A('aW'), wm: A('aWm'), ws: A('aWs'),
+    res: U('uRes'), rect: U('uRect'), size: U('uSize'), step: U('uStep'), flat: U('uFlat'),
+    ba: U('uBA'), bd: U('uBD'), n: U('uN'), shake: U('uShake'), cap: U('uCap'), tex: U('uTex'), pass: U('uPass'),
   };
-  bufPos = gl.createBuffer(); bufUV = gl.createBuffer(); bufIdx = gl.createBuffer(); tex = gl.createTexture();
+  bufUV = gl.createBuffer(); bufIdx = gl.createBuffer(); bufW = gl.createBuffer(); bufWm = gl.createBuffer(); bufWs = gl.createBuffer();
+  tex = gl.createTexture();
   return true;
 }
 
@@ -420,17 +459,21 @@ function uploadTexture() {
 }
 
 /* ---------- mesh & squish state ---------- */
-const M = { nx: 0, ny: 0, N: 0, rx: null, ry: null, dx: null, dy: null, mob: null, dist: null, sw: null, pos: null, uv: null, idx: null };
+const M = {
+  nx: 0, ny: 0, N: 0, cols: 0, rows: 0, rx: null, ry: null, uv: null, idx: null,
+  mob: null, sw: null, dist: null, aW: null, aWm: null, aWs: null,
+};
 
 function buildMesh() {
   let cols, rows;
-  if (S.aw >= S.ah) { cols = GRID; rows = Math.max(6, Math.round(GRID * S.ah / S.aw)); }
-  else { rows = GRID; cols = Math.max(6, Math.round(GRID * S.aw / S.ah)); }
+  if (S.aw >= S.ah) { cols = GRID; rows = Math.max(8, Math.round(GRID * S.ah / S.aw)); }
+  else { rows = GRID; cols = Math.max(8, Math.round(GRID * S.aw / S.ah)); }
   const nx = cols + 1, ny = rows + 1, N = nx * ny;
   Object.assign(M, {
-    nx, ny, N,
-    rx: new Float32Array(N), ry: new Float32Array(N), dx: new Float32Array(N), dy: new Float32Array(N),
-    mob: new Float32Array(N), dist: new Float32Array(N), sw: new Float32Array(N), pos: new Float32Array(N * 3), uv: new Float32Array(N * 2), idx: new Uint16Array(cols * rows * 6),
+    nx, ny, N, cols, rows,
+    rx: new Float32Array(N), ry: new Float32Array(N), uv: new Float32Array(N * 2), idx: new Uint16Array(cols * rows * 6),
+    mob: new Float32Array(N), sw: new Float32Array(N), dist: new Float32Array(N),
+    aW: new Float32Array(N * 2), aWm: new Float32Array(N * 4), aWs: new Float32Array(N * 4),
   });
   for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
     const k = j * nx + i, u = i / cols, v = j / rows;
@@ -447,13 +490,18 @@ function uploadMesh() {
   if (!gl || !M.N) return;
   gl.bindBuffer(gl.ARRAY_BUFFER, bufUV); gl.bufferData(gl.ARRAY_BUFFER, M.uv, gl.STATIC_DRAW);
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, bufIdx); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, M.idx, gl.STATIC_DRAW);
-  gl.bindBuffer(gl.ARRAY_BUFFER, bufPos); gl.bufferData(gl.ARRAY_BUFFER, M.pos.byteLength, gl.DYNAMIC_DRAW);
+  uploadWeights();
+}
+function uploadWeights() {
+  if (!gl || !M.N) return;
+  gl.bindBuffer(gl.ARRAY_BUFFER, bufW); gl.bufferData(gl.ARRAY_BUFFER, M.aW, gl.STATIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER, bufWm); gl.bufferData(gl.ARRAY_BUFFER, M.aWm, gl.STATIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER, bufWs); gl.bufferData(gl.ARRAY_BUFFER, M.aWs, gl.STATIC_DRAW);
 }
 
 function zeroField() {
   blobs.length = 0;
   Object.assign(shake, { x: 0, y: 0, vx: 0, vy: 0, at: -1e9 });
-  if (M.N) { M.dx.fill(0); M.dy.fill(0); }
 }
 
 /* How a pull feels. Each grab moves a soft lump of the painted area as one piece, like a cheek
@@ -523,35 +571,35 @@ function pruneBlobs() {
         && Math.abs(b.p) < 3e-4 && Math.abs(b.pv) < 3e-3) blobs.splice(i, 1);
   }
 }
-function computeField(F) {
-  const { nx, ny, N, rx, ry, dx, dy, mob } = M;
-  dx.fill(0); dy.fill(0);
-  const sl = Math.hypot(shake.x, shake.y);
-  if (sl > 1e-6) {
-    const cap = F.L * 0.6, c = cap * Math.tanh(sl / cap) / sl, sx = shake.x * c, sy = shake.y * c, sw = M.sw;
-    for (let k = 0; k < N; k++) { const w = sw[k]; if (w) { dx[k] += w * sx; dy[k] += w * sy; } }
+// Pack the lumps and the shake for the shader.
+const uBA = new Float32Array(MAX_BLOBS * 4), uBD = new Float32Array(MAX_BLOBS * 2);
+function packField(F) {
+  const n = Math.min(blobs.length, MAX_BLOBS);
+  for (let i = 0; i < n; i++) {
+    const b = blobs[i], pull = Math.min(1.5, Math.hypot(b.dx, b.dy) / F.L);
+    uBA[i * 4] = b.ax; uBA[i * 4 + 1] = b.ay;
+    uBA[i * 4 + 2] = F.R * (1 + F.grow * pull);       // the lump widens as you pull
+    uBA[i * 4 + 3] = F.puff * pull + b.p;              // and puffs up a little
+    uBD[i * 2] = b.dx; uBD[i * 2 + 1] = b.dy;
   }
-  const hx = S.aw / (nx - 1), hy = S.ah / (ny - 1);
-  for (const b of blobs) {
-    const pull = Math.min(1.5, Math.hypot(b.dx, b.dy) / F.L);
-    const R = F.R * (1 + F.grow * pull), R2 = R * R, puff = F.puff * pull + b.p;
-    const i0 = Math.max(0, Math.floor((b.ax - R) / hx)), i1 = Math.min(nx - 1, Math.ceil((b.ax + R) / hx));
-    const j0 = Math.max(0, Math.floor((b.ay - R) / hy)), j1 = Math.min(ny - 1, Math.ceil((b.ay + R) / hy));
-    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
-      const k = j * nx + i, m = mob[k];
-      if (!m) continue;
-      const ex = rx[k] - b.ax, ey = ry[k] - b.ay, r2 = (ex * ex + ey * ey) / R2;
-      if (r2 >= 1) continue;
-      const f = (1 - r2) * (1 - r2) * m;
-      dx[k] += f * (b.dx + ex * puff); dy[k] += f * (b.dy + ey * puff);
+  const sl = Math.hypot(shake.x, shake.y), cap = F.L * 0.6, c = sl > 1e-6 ? cap * Math.tanh(sl / cap) / sl : 0;
+  // several lumps (or a lump plus shaking) can't add up much past the limit
+  return { n, sx: shake.x * c, sy: shake.y * c, L: F.L, extra: F.L * 0.25 };
+}
+// The shader's maths for one grid point, used to find what's under your finger.
+function dispAt(k, P) {
+  const px = M.rx[k], py = M.ry[k], m = M.mob[k];
+  let dx = M.sw[k] * P.sx, dy = M.sw[k] * P.sy;
+  for (let i = 0; i < P.n; i++) {
+    const ex = px - uBA[i * 4], ey = py - uBA[i * 4 + 1], R = uBA[i * 4 + 2], r2 = (ex * ex + ey * ey) / (R * R);
+    if (r2 < 1) {
+      const f = (1 - r2) * (1 - r2) * m, pf = uBA[i * 4 + 3];
+      dx += f * (uBD[i * 2] + ex * pf); dy += f * (uBD[i * 2 + 1] + ey * pf);
     }
   }
-  // several lumps pulled the same way can't add up past the limit
-  const L = F.L, extra = F.L * 0.25;
-  for (let k = 0; k < N; k++) {
-    const l = Math.hypot(dx[k], dy[k]);
-    if (l > L) { const c = (L + extra * Math.tanh((l - L) / extra)) / l; dx[k] *= c; dy[k] *= c; }
-  }
+  const l = Math.hypot(dx, dy);
+  if (l > P.L) { const c = (P.L + P.extra * Math.tanh((l - P.L) / P.extra)) / l; dx *= c; dy *= c; }
+  return [dx, dy];
 }
 
 /* ---------- layout, zoom & render ---------- */
@@ -609,33 +657,28 @@ function render() {
   gl.clearColor(0, 0, 0, 0); gl.clearDepth(1);
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
   if (!M.N || !texCanvas || S.mode === 'empty') return;
-  const r = S.rect, P = M.pos, flat = S.mode !== 'play', { nx, ny, dx, dy, rx, ry } = M;
-  if (flat) {
-    for (let k = 0; k < M.N; k++) { P[k * 3] = r.x + rx[k] * r.s; P[k * 3 + 1] = r.y + ry[k] * r.s; P[k * 3 + 2] = 0; }
-  } else {
-    // Depth: pulled-out parts sit on top, squashed or folded-over parts tuck in behind.
-    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
-      const k = j * nx + i;
-      const kl = i > 0 ? k - 1 : k, kr = i < nx - 1 ? k + 1 : k, ku = j > 0 ? k - nx : k, kd = j < ny - 1 ? k + nx : k;
-      const du = rx[kr] - rx[kl] || 1, dv = ry[kd] - ry[ku] || 1;
-      const xu = (rx[kr] + dx[kr] - rx[kl] - dx[kl]) / du, yu = (dy[kr] - dy[kl]) / du;
-      const xv = (dx[kd] - dx[ku]) / dv, yv = (ry[kd] + dy[kd] - ry[ku] - dy[ku]) / dv;
-      const squash = clamp(1 - (xu * yv - yu * xv), 0, 2);
-      const lift = Math.min(1, Math.hypot(dx[k], dy[k]) * 6);
-      P[k * 3] = r.x + (rx[k] + dx[k]) * r.s;
-      P[k * 3 + 1] = r.y + (ry[k] + dy[k]) * r.s;
-      P[k * 3 + 2] = clamp(0.45 * squash - 0.5 * lift, -0.95, 0.95);
-    }
-  }
+  const r = S.rect, flat = S.mode !== 'play';
   gl.useProgram(prog);
   gl.uniform2f(loc.res, S.cssW, S.cssH);
+  gl.uniform3f(loc.rect, r.x, r.y, r.s);
+  gl.uniform2f(loc.size, S.aw, S.ah);
+  gl.uniform2f(loc.step, S.aw / M.cols, S.ah / M.rows);
+  gl.uniform1f(loc.flat, flat ? 1 : 0);
+  if (flat) gl.uniform1i(loc.n, 0);
+  else {
+    const P = packField(feel());
+    gl.uniform1i(loc.n, P.n); gl.uniform4fv(loc.ba, uBA); gl.uniform2fv(loc.bd, uBD);
+    gl.uniform2f(loc.shake, P.sx, P.sy); gl.uniform2f(loc.cap, P.L, P.extra);
+  }
   gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tex); gl.uniform1i(loc.tex, 0);
-  gl.bindBuffer(gl.ARRAY_BUFFER, bufPos); gl.bufferSubData(gl.ARRAY_BUFFER, 0, P);
-  gl.vertexAttribPointer(loc.pos, 3, gl.FLOAT, false, 0, 0); gl.enableVertexAttribArray(loc.pos);
-  gl.bindBuffer(gl.ARRAY_BUFFER, bufUV);
-  gl.vertexAttribPointer(loc.uv, 2, gl.FLOAT, false, 0, 0); gl.enableVertexAttribArray(loc.uv);
+  const attrib = (buf, l, n) => {
+    if (l < 0) return;
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.vertexAttribPointer(l, n, gl.FLOAT, false, 0, 0); gl.enableVertexAttribArray(l);
+  };
+  attrib(bufUV, loc.uv, 2); attrib(bufW, loc.w, 2); attrib(bufWm, loc.wm, 4); attrib(bufWs, loc.ws, 4);
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, bufIdx);
   gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
+  // pass 0: solid pixels with depth; pass 1: soft edges blended on top
   gl.disable(gl.BLEND); gl.depthMask(true); gl.uniform1f(loc.pass, 0);
   gl.drawElements(gl.TRIANGLES, M.idx.length, gl.UNSIGNED_SHORT, 0);
   gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false); gl.uniform1f(loc.pass, 1);
@@ -656,7 +699,6 @@ function frame(now) {
     while (acc >= SUB && n < 14) { stepBlobs(SUB, F); stepShake(SUB, F, now); acc -= SUB; n++; }
     if (n === 14) acc = 0;
     if (n) pruneBlobs();
-    computeField(F);
   }
   render(); dirty = false;
   if (R.on) captureFrame(now);
@@ -750,33 +792,24 @@ function paintSpots(spots) {
     mctx.fillStyle = g; mctx.beginPath(); mctx.arc(x * maskCv.width, y * maskCv.height, r * L, 0, Math.PI * 2); mctx.fill();
   }
 }
+// Turn the painted mask into smooth "how squishy" weights on the grid. They're blurred, so a stretch
+// eases in gently at the edge of a painted area instead of creasing there.
 function computeMobility() {
-  const { nx, ny, N } = M;
+  const { nx, ny, N, cols } = M;
   if (!N) return false;
-  const w = maskCv.width, h = maskCv.height, data = mctx.getImageData(0, 0, w, h).data;
-  let a = new Float32Array(N), t = new Float32Array(N);
-  for (let k = 0; k < N; k++) {
-    const x = Math.min(w - 1, Math.floor(M.uv[k * 2] * w)), y = Math.min(h - 1, Math.floor(M.uv[k * 2 + 1] * h));
-    a[k] = data[(y * w + x) * 4 + 3] / 255;
-  }
-  for (let pass = 0; pass < 3; pass++) {       // soften the edges a little
-    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
-      let s = 0, ws = 0;
-      for (let oj = -1; oj <= 1; oj++) for (let oi = -1; oi <= 1; oi++) {
-        const ii = i + oi, jj = j + oj;
-        if (ii < 0 || jj < 0 || ii >= nx || jj >= ny) continue;
-        const wt = (oi ? 1 : 2) * (oj ? 1 : 2);
-        s += a[jj * nx + ii] * wt; ws += wt;
-      }
-      t[j * nx + i] = s / ws;
-    }
-    [a, t] = [t, a];
-  }
+  const t = document.createElement('canvas'); t.width = nx; t.height = ny;
+  const tc = t.getContext('2d', { willReadFrequently: true });
+  tc.imageSmoothingEnabled = true; tc.imageSmoothingQuality = 'high';
+  tc.drawImage(maskCv, 0, 0, nx, ny);
+  const data = tc.getImageData(0, 0, nx, ny).data, mob = M.mob, sw = M.sw, d = M.dist;
+  for (let k = 0; k < N; k++) mob[k] = smooth(0.04, 0.6, data[k * 4 + 3] / 255);
+  const cell = S.aw / cols;
+  blur(mob, nx, ny, BLUR / cell);
   let any = false;
-  for (let k = 0; k < N; k++) { const m = smooth(0.04, 0.6, a[k]); M.mob[k] = m; if (m > 0.12) any = true; }
+  for (let k = 0; k < N; k++) if (mob[k] > 0.12) { any = true; break; }
   // how deep each point sits inside its squishy patch (two-pass chamfer distance; outside the picture counts as edge)
-  const d = M.dist, SQ2 = Math.SQRT2;
-  for (let k = 0; k < N; k++) d[k] = M.mob[k] > 0.12 ? 1e9 : 0;
+  const SQ2 = Math.SQRT2;
+  for (let k = 0; k < N; k++) d[k] = mob[k] > 0.12 ? 1e9 : 0;
   const at = (i, j) => (i < 0 || j < 0 || i >= nx || j >= ny ? 0 : d[j * nx + i]);
   for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
     const k = j * nx + i;
@@ -786,9 +819,35 @@ function computeMobility() {
     const k = j * nx + i;
     if (d[k]) d[k] = Math.min(d[k], at(i + 1, j) + 1, at(i, j + 1) + 1, at(i + 1, j + 1) + SQ2, at(i - 1, j + 1) + SQ2);
   }
-  const cell = S.aw / (nx - 1);
-  for (let k = 0; k < N; k++) { d[k] *= cell; M.sw[k] = M.mob[k] * smooth(0, SHAKE_DEPTH, d[k]); }
+  for (let k = 0; k < N; k++) { d[k] *= cell; sw[k] = mob[k] * smooth(0, SHAKE_DEPTH, d[k]); }
+  blur(sw, nx, ny, BLUR / cell);
+  // what the shader needs per point: its own weights plus its left/right/up/down neighbours'
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+    const k = j * nx + i, l = i > 0 ? k - 1 : k, r = i < nx - 1 ? k + 1 : k, u = j > 0 ? k - nx : k, w = j < ny - 1 ? k + nx : k;
+    M.aW[k * 2] = mob[k]; M.aW[k * 2 + 1] = sw[k];
+    M.aWm[k * 4] = mob[l]; M.aWm[k * 4 + 1] = mob[r]; M.aWm[k * 4 + 2] = mob[u]; M.aWm[k * 4 + 3] = mob[w];
+    M.aWs[k * 4] = sw[l]; M.aWs[k * 4 + 1] = sw[r]; M.aWs[k * 4 + 2] = sw[u]; M.aWs[k * 4 + 3] = sw[w];
+  }
+  uploadWeights();
   return any;
+}
+// Gaussian blur on a grid (outside the picture counts as not squishy)
+function blur(a, nx, ny, sigma) {
+  const rad = Math.max(1, Math.ceil(sigma * 3)), ker = new Float32Array(rad * 2 + 1);
+  let s = 0;
+  for (let i = -rad; i <= rad; i++) { ker[i + rad] = Math.exp(-(i * i) / (2 * sigma * sigma)); s += ker[i + rad]; }
+  for (let i = 0; i < ker.length; i++) ker[i] /= s;
+  const tmp = new Float32Array(a.length);
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+    let v = 0;
+    for (let o = -rad; o <= rad; o++) { const ii = i + o; if (ii >= 0 && ii < nx) v += a[j * nx + ii] * ker[o + rad]; }
+    tmp[j * nx + i] = v;
+  }
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+    let v = 0;
+    for (let o = -rad; o <= rad; o++) { const jj = j + o; if (jj >= 0 && jj < ny) v += tmp[jj * nx + i] * ker[o + rad]; }
+    a[j * nx + i] = v;
+  }
 }
 
 /* ---------- grabbing ---------- */
@@ -798,13 +857,15 @@ function toNorm(p) { return { x: (p.x - S.rect.x) / S.rect.s, y: (p.y - S.rect.y
 function toMask(p) { return { x: (p.x - S.rect.x) / S.rect.w * maskCv.width, y: (p.y - S.rect.y) / S.rect.h * maskCv.height }; }
 
 function pickVertex(q) {
-  const { N, rx, ry, dx, dy } = M;
+  const P = packField(feel()), { N, rx, ry } = M, moving = P.n || P.sx || P.sy;
   let best = -1, bd = Infinity;
   for (let k = 0; k < N; k++) {
-    const ex = rx[k] + dx[k] - q.x, ey = ry[k] + dy[k] - q.y, d2 = ex * ex + ey * ey;
+    let x = rx[k] - q.x, y = ry[k] - q.y;
+    if (moving && x * x + y * y < 0.04) { const d = dispAt(k, P); x += d[0]; y += d[1]; }   // only nearby points can have moved under the finger
+    const d2 = x * x + y * y;
     if (d2 < bd) { bd = d2; best = k; }
   }
-  return bd <= (3 / GRID) ** 2 ? best : -1;
+  return bd <= 0.02 * 0.02 ? best : -1;
 }
 function startGrab(id, q) {
   const k = pickVertex(q);
@@ -1392,7 +1453,10 @@ catch (err) { console.error(err); gl = null; $('#glError').hidden = false; $('#b
 syncUI(); layout();
 
 // handy for testing from the console
-window.squish = { openSample, state: S, mesh: M, startRecording, stopRecording };
+window.squish = {
+  openSample, state: S, mesh: M, startRecording, stopRecording,
+  maxDisp() { const P = packField(feel()); let m = 0; for (let k = 0; k < M.N; k++) { const d = dispAt(k, P); m = Math.max(m, Math.hypot(d[0], d[1])); } return m; },
+};
 })();
 </script>
 </body>
