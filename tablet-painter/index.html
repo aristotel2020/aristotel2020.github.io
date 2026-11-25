@@ -1,0 +1,2211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#1e1f23">
+<title>Tablet Painter</title>
+<style>
+  :root { --bg:#1e1f23; --panel:#2b2d33; --panel2:#35373e; --line:#43464f; --text:#e8e9ec; --dim:#9a9ea8; --acc:#4fa3ff; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { margin:0; height:100%; overflow:hidden; background:#26272b; color:var(--text);
+    font:14px/1.3 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; user-select:none; -webkit-user-select:none;
+    touch-action:none; overscroll-behavior:none; }
+  #view { position:fixed; inset:0; width:100%; height:100%; touch-action:none; display:block; }
+  button { font:inherit; color:inherit; background:none; border:0; padding:0; cursor:pointer; }
+  svg { width:24px; height:24px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; pointer-events:none; }
+
+  #top { position:fixed; left:0; right:0; top:0; height:56px; padding:6px 10px; display:flex; align-items:center;
+    justify-content:space-between; background:rgba(30,31,35,.92); border-bottom:1px solid #000; z-index:10; }
+  .grp { display:flex; gap:4px; align-items:center; }
+  .ib { width:44px; height:44px; border-radius:10px; display:grid; place-items:center; color:var(--dim); }
+  .ib:active { background:var(--panel2); }
+  .ib.on { color:#fff; background:var(--panel2); box-shadow:inset 0 -2px 0 var(--acc); }
+  .ib:disabled { opacity:.3; }
+  #bColor { width:40px; height:40px; border-radius:50%; border:3px solid #fff; box-shadow:0 0 0 1px #000; margin-left:6px; }
+
+  /* Narrow screens (phones held upright): the tools move to a bottom bar, see layoutBars(). */
+  :root { --topH:56px; --botH:0px; }
+  body.narrow { --botH:60px; }
+  #bottom { position:fixed; left:0; right:0; bottom:0; height:var(--botH); padding:6px 4px; display:none; align-items:center;
+    justify-content:space-around; background:rgba(30,31,35,.92); border-top:1px solid #000; z-index:10; }
+  body.narrow #bottom { display:flex; }
+  body.narrow #bottom .grp { gap:2px; }
+  #side { position:fixed; left:10px; top:var(--topH); bottom:var(--botH); display:flex; flex-direction:column; justify-content:center;
+    gap:14px; z-index:9; pointer-events:none; }
+  /* The rounded track (.trk) always clips the fill; the value label (.val) sits outside it, so it can show
+     next to the slider without unclipping the fill. */
+  .vs { position:relative; width:36px; pointer-events:auto; touch-action:none;
+    height:clamp(64px, calc((100vh - var(--topH) - var(--botH) - 44px) / 2), 190px);
+    height:clamp(64px, calc((100dvh - var(--topH) - var(--botH) - 44px) / 2), 190px); }
+  .vs .trk { position:absolute; inset:0; border-radius:18px; background:rgba(43,45,51,.92); border:1px solid #000; overflow:hidden; }
+  .vs .fill { position:absolute; left:0; right:0; bottom:0; background:#4a4e59; }
+  .vs .cap { position:absolute; left:0; right:0; bottom:4px; text-align:center; font-size:10px; color:var(--dim); pointer-events:none; }
+  .vs .val { position:absolute; left:46px; top:50%; transform:translateY(-50%); background:#000c; padding:4px 8px;
+    border-radius:6px; white-space:nowrap; display:none; pointer-events:none; }
+  .vs.drag .val { display:block; }
+
+  .pop { position:fixed; top:62px; z-index:20; background:var(--panel); border:1px solid #000; border-radius:14px;
+    box-shadow:0 10px 30px #0008; padding:12px; display:none; overflow-y:auto;
+    max-height:calc(100vh - var(--topH) - var(--botH) - 16px); max-height:calc(100dvh - var(--topH) - var(--botH) - 16px); }
+  .pop.open { display:block; }
+  .pop h3 { margin:0 0 10px; font-size:13px; font-weight:600; color:var(--dim); text-transform:uppercase; letter-spacing:.06em; }
+  #pMenu { left:10px; width:250px; padding:6px; }
+  #pMenu button { display:flex; width:100%; justify-content:space-between; padding:12px; border-radius:8px; text-align:left; }
+  #pMenu button:active { background:var(--panel2); }
+  #pMenu hr { border:0; border-top:1px solid var(--line); margin:4px 0; }
+  .tag { color:var(--acc); }
+  #pBrush { left:50%; transform:translateX(-50%); width:min(660px, 96vw); }
+  .pbcols { display:grid; grid-template-columns:1fr 1fr; gap:22px; }
+  @media (max-width:640px) { .pbcols { grid-template-columns:1fr; } }
+  #curve { display:block; width:100%; aspect-ratio:1; max-height:300px; border-radius:10px; background:var(--bg); touch-action:none; cursor:crosshair; }
+  .hint { color:var(--dim); font-size:12px; margin-top:6px; }
+  .row { display:flex; align-items:center; gap:10px; margin:10px 0; }
+  .row label { width:110px; color:var(--dim); }
+  .row input[type=range] { flex:1; accent-color:var(--acc); height:28px; }
+  .row output { width:40px; text-align:right; font-variant-numeric:tabular-nums; }
+  .row input[type=checkbox] { width:22px; height:22px; accent-color:var(--acc); }
+  #pColor { right:10px; width:276px; }
+  #sv, #hue { display:block; border-radius:8px; touch-action:none; cursor:crosshair; }
+  .pk { position:relative; }
+  .mk { position:absolute; width:18px; height:18px; margin:-9px 0 0 -9px; border-radius:50%; border:2px solid #fff;
+    box-shadow:0 0 0 1px #000, inset 0 0 0 1px #000; pointer-events:none; }
+  #hueMk { top:50%; height:30px; width:10px; margin:-15px 0 0 -5px; border-radius:4px; }
+  #hexRow { display:flex; gap:8px; align-items:center; margin:10px 0; }
+  #hex { flex:1; background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:8px; padding:8px; font:inherit; font-family:monospace; }
+  #curSw { width:40px; height:36px; border-radius:8px; border:1px solid #000; }
+  #recent { display:grid; grid-template-columns:repeat(8,1fr); gap:6px; }
+  #recent button { aspect-ratio:1; border-radius:6px; border:1px solid #000; }
+
+  #pLayers { position:fixed; right:10px; top:62px; width:min(280px, calc(100vw - 20px)); max-height:calc(100% - var(--topH) - var(--botH) - 16px); z-index:15; background:var(--panel);
+    border:1px solid #000; border-radius:14px; box-shadow:0 10px 30px #0008; display:none; flex-direction:column; }
+  #pLayers.open { display:flex; }
+  #lHead { display:flex; justify-content:space-between; align-items:center; padding:10px 12px 4px; }
+  #lHead h3 { margin:0; font-size:13px; color:var(--dim); text-transform:uppercase; letter-spacing:.06em; }
+  #lList { overflow-y:auto; padding:4px 8px; flex:1; min-height:60px; }
+  .lrow { display:flex; align-items:center; gap:10px; padding:6px; border-radius:10px; margin:3px 0; border:2px solid transparent; }
+  .lrow.on { border-color:var(--acc); background:var(--panel2); }
+  .tw { flex:none; width:60px; height:60px; display:grid; place-items:center; border-radius:6px;
+    background:repeating-conic-gradient(#ccc 0 25%, #fff 0 50%) 0 0/12px 12px; overflow:hidden; border:1px solid #000; }
+  .tw canvas { display:block; max-width:60px; max-height:60px; }
+  .lname { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .eye { width:40px; height:40px; display:grid; place-items:center; color:var(--text); }
+  .eye.off { color:#666; }
+  #lOpRow { padding:4px 12px; margin:0; }
+  #lOpRow label { width:64px; }
+  #lActs { display:grid; grid-template-columns:repeat(4,1fr); gap:4px; padding:8px; border-top:1px solid var(--line); }
+  #lActs button { padding:9px 2px; border-radius:8px; background:var(--panel2); font-size:12px; }
+  #lActs button:active { background:#4a4e59; }
+
+  .modal { position:fixed; inset:0; background:#0009; z-index:40; display:none; place-items:center; }
+  .modal.open { display:grid; }
+  .card { background:var(--panel); border:1px solid #000; border-radius:16px; padding:18px; width:min(440px, 92vw);
+    max-height:92vh; max-height:92dvh; overflow-y:auto; }
+  .card h2 { margin:0 0 12px; font-size:18px; }
+  .card p, .card li { color:#c8cad0; }
+  .card input[type=number] { width:100px; background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:8px; padding:8px; font:inherit; }
+  .presets { display:flex; flex-wrap:wrap; gap:6px; margin:8px 0 12px; }
+  .btn { padding:10px 16px; border-radius:10px; background:var(--panel2); }
+  .btn.pri { background:var(--acc); color:#000; font-weight:600; }
+  .btns { display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
+  .seg { display:flex; gap:4px; background:var(--bg); border-radius:10px; padding:3px; }
+  .seg button { flex:1; padding:9px 4px; border-radius:8px; }
+  .seg button.on { background:var(--panel2); color:#fff; box-shadow:inset 0 -2px 0 var(--acc); }
+  #pSel { left:50%; transform:translateX(-50%); width:300px; }
+  #selBar { position:fixed; left:50%; bottom:calc(var(--botH) + 12px); transform:translateX(-50%); z-index:12; display:none; gap:4px; padding:5px;
+    background:rgba(43,45,51,.95); border:1px solid #000; border-radius:12px; box-shadow:0 6px 20px #0007; }
+  #selBar.open { display:flex; }
+  #selBar button { padding:10px 14px; border-radius:8px; }
+  #selBar button:active { background:var(--panel2); }
+  #dProj .card { width:min(940px, 94vw); max-height:90vh; display:flex; flex-direction:column; }
+  #projHead { display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:6px; }
+  #projHead h2 { margin:0; }
+  #projGrid { display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:12px; overflow-y:auto; padding:2px; }
+  .pc { background:var(--panel2); border-radius:12px; overflow:hidden; border:2px solid transparent; }
+  .pc.cur { border-color:var(--acc); }
+  .pc img { width:100%; aspect-ratio:4/3; object-fit:contain; background:#1a1b1f; display:block; cursor:pointer; }
+  .pc .pn { padding:8px 10px 0; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .pc .pm { padding:2px 10px; color:var(--dim); font-size:12px; }
+  .pc .pa { display:flex; gap:3px; padding:6px; }
+  .pc .pa button { flex:1; padding:8px 0; border-radius:6px; font-size:12px; background:#2b2d33; }
+  .pc .pa button:active { background:#4a4e59; }
+  #pFx { left:50%; transform:translateX(-50%); width:min(320px, 94vw); }
+  .fxItem { display:flex; gap:12px; align-items:center; width:100%; padding:12px; border-radius:10px; background:var(--panel2); text-align:left; }
+  .fxItem:active { background:#4a4e59; }
+  .fxItem small { color:var(--dim); }
+  #sample { display:block; width:100%; height:84px; border-radius:10px; border:1px solid #000; }
+  #fxBar { position:fixed; left:50%; bottom:calc(var(--botH) + 12px); transform:translateX(-50%); z-index:30; width:min(480px, 94vw);
+    display:none; background:var(--panel); border:1px solid #000; border-radius:14px; box-shadow:0 10px 30px #0008; padding:12px 14px; }
+  #fxBar.open { display:block; }
+  #fxHead { display:flex; gap:8px; align-items:baseline; }
+  #fxWhat { color:var(--dim); font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  /* While a filter preview is open, the rest of the UI is paused (canvas pan/zoom still works). */
+  body.fx #top, body.fx #bottom, body.fx #side, body.fx #pLayers, body.fx #selBar, body.fx .pop,
+  body.xf #top, body.xf #bottom, body.xf #side, body.xf #pLayers, body.xf #selBar, body.xf .pop { pointer-events:none; opacity:.4; }
+  #xfBar { position:fixed; left:50%; bottom:calc(var(--botH) + 12px); transform:translateX(-50%); z-index:30; width:min(540px, 96vw);
+    display:none; background:var(--panel); border:1px solid #000; border-radius:14px; box-shadow:0 10px 30px #0008; padding:10px 12px; }
+  #xfBar.open { display:block; }
+  #xfRead { margin-left:auto; color:var(--dim); font-size:12px; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .xfBtns { display:flex; flex-wrap:wrap; gap:4px; }
+  .xfBtns button { flex:1; padding:9px 6px; border-radius:8px; background:var(--panel2); font-size:13px; white-space:nowrap; }
+  .xfBtns button:active { background:#4a4e59; }
+  .xfBtns button.on { box-shadow:inset 0 -2px 0 var(--acc); color:#fff; }
+  body.narrow #bottom .ib { width:40px; }
+  @media (max-width:370px) { body.narrow #bottom .ib { width:36px; } }
+  #toast { position:fixed; left:50%; bottom:calc(var(--botH) + 24px); transform:translateX(-50%); background:#000d; padding:10px 16px; border-radius:10px;
+    z-index:50; opacity:0; transition:opacity .25s; pointer-events:none; max-width:90vw; text-align:center; }
+  #toast.show { opacity:1; }
+  /* Auto-hide: UI the pen comes near during a stroke fades out until the pen moves away or lifts. */
+  #top, #bottom, #selBar, .vs { transition:opacity .15s; }
+  .faded { opacity:0 !important; pointer-events:none !important; }
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+
+<div id="top">
+  <div class="grp" id="gLeft">
+    <button class="ib" id="bMenu" title="Menu"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+    <button class="ib" id="bUndo" title="Undo (Ctrl+Z, 2-finger tap)"><svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button>
+    <button class="ib" id="bRedo" title="Redo (Ctrl+Y, 3-finger tap)"><svg viewBox="0 0 24 24"><path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg></button>
+  </div>
+  <div class="grp" id="gTools">
+    <button class="ib tool on" data-tool="brush" title="Brush (B)"><svg viewBox="0 0 24 24"><path d="M4 20.5c3.2 0 5-1.8 5-4.2a2.6 2.6 0 0 0-5.2 0c0 1.6.6 2.5.2 4.2z"/><path d="M8.4 14L19.6 2.8a1.5 1.5 0 0 1 2.1 2.1L10.5 16.1"/></svg></button>
+    <button class="ib tool" data-tool="eraser" title="Eraser (E)"><svg viewBox="0 0 24 24"><path d="M8 20h12"/><path d="M5.2 16.3l9.6-9.6a2 2 0 0 1 2.8 0l2.7 2.7a2 2 0 0 1 0 2.8L12.2 20H8.9l-3.7-3.7z"/><path d="M9.5 12l5.5 5.5"/></svg></button>
+    <button class="ib tool" data-tool="picker" title="Eyedropper (I, or hold a finger on the canvas)"><svg viewBox="0 0 24 24"><path d="M13.5 6.5l4 4"/><path d="M15.5 4.5a2.8 2.8 0 0 1 4 4l-2 2-4-4 2-2z"/><path d="M14.5 9.5L6 18l-2.5.5.5-2.5 8.5-8.5"/></svg></button>
+    <button class="ib tool" data-tool="select" title="Select (S) - tap again for options"><svg viewBox="0 0 24 24"><path d="M4 7V4h3M10 4h4M17 4h3v3M20 10v4M20 17v3h-3M14 20h-4M7 20H4v-3M4 14v-4"/></svg></button>
+    <button class="ib" id="bXf" title="Transform: move, scale, rotate (T)"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12"/><path d="M3 3h3v3H3zM18 3h3v3h-3zM3 18h3v3H3zM18 18h3v3h-3z"/></svg></button>
+    <button class="ib" id="bFx" title="Filters"><svg viewBox="0 0 24 24"><circle cx="9" cy="9.5" r="5.5"/><circle cx="15" cy="9.5" r="5.5"/><circle cx="12" cy="14.5" r="5.5"/></svg></button>
+  </div>
+  <div class="grp" id="topRight">
+   <div class="grp" id="gView">
+    <button class="ib" id="bFlip" title="Mirror canvas (M)"><svg viewBox="0 0 24 24"><path d="M12 3v18"/><path d="M9 7L3 17h6V7z"/><path d="M15 7l6 10h-6V7z"/></svg></button>
+    <button class="ib" id="bLock" title="Lock view: no pan, zoom or rotate (K)"><svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path id="lockShackle" d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></button>
+   </div>
+    <button class="ib" id="bFit" title="Fit view (0)"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+    <button class="ib" id="bLayers" title="Layers (L)"><svg viewBox="0 0 24 24"><path d="M12 3.5l9 5-9 5-9-5 9-5z"/><path d="M3 12.5l9 5 9-5"/><path d="M3 16.5l9 5 9-5"/></svg></button>
+    <button id="bColor" title="Color"></button>
+  </div>
+</div>
+<div id="bottom"></div>
+
+<div id="side">
+  <div class="vs" id="vsSize"><div class="trk"><div class="fill"></div><div class="cap">SIZE</div></div><div class="val"></div></div>
+  <div class="vs" id="vsOpac"><div class="trk"><div class="fill"></div><div class="cap">OPAC</div></div><div class="val"></div></div>
+</div>
+
+<div class="pop" id="pMenu">
+  <button id="mProjects">Projects…</button>
+  <button id="mNew">New canvas…</button>
+  <button id="mImport">Import image as layer…</button>
+  <hr>
+  <button id="mSave">Save PNG</button>
+  <button id="mShare">Share PNG…</button>
+  <hr>
+  <button id="mRot">Two-finger rotation <span class="tag" id="mRotV">on</span></button>
+  <button id="mAutoHide">Hide UI near the pen <span class="tag" id="mAutoHideV">on</span></button>
+  <button id="mFinger">Finger draws <span class="tag" id="mFingerV">off</span></button>
+  <button id="mFull">Fullscreen</button>
+  <button id="mHelp">Gestures &amp; shortcuts</button>
+</div>
+
+<div class="pop" id="pBrush">
+<div class="pbcols"><div>
+  <div class="seg" id="brushKind" style="margin-bottom:10px"><button data-k="brush">Round brush</button><button data-k="pencil">Pencil</button></div>
+  <canvas id="sample" title="Test stroke with the current settings: light → full → light pressure"></canvas>
+  <div class="hint" id="sampleNote" style="margin:4px 0 10px"></div>
+  <h3 id="pbTitle">Brush</h3>
+  <div id="pencilRows">
+    <div class="row"><label>Texture</label><input type="range" id="rGrain" min="0" max="100"><output id="oGrain"></output></div>
+    <div class="row"><label>Grain size</label><input type="range" id="rGScale" min="50" max="400" step="10"><output id="oGScale"></output></div>
+    <div class="row"><label>Density</label><input type="range" id="rDensity" min="5" max="100"><output id="oDensity"></output></div>
+    <div class="hint" style="margin:-4px 0 8px">Density: how much of the paper grain fills in. With Pressure → opacity on, pressing harder fills in more, up to this.</div>
+  </div>
+  <div class="row"><label>Hardness</label><input type="range" id="rHard" min="0" max="100"><output id="oHard"></output></div>
+  <div class="row"><label>Flow</label><input type="range" id="rFlow" min="1" max="100"><output id="oFlow"></output></div>
+  <div class="row"><label>Spacing</label><input type="range" id="rSpace" min="2" max="60"><output id="oSpace"></output></div>
+  <h3 style="margin-top:16px">Stroke (all tools)</h3>
+  <div class="row"><label>Smoothing</label><input type="range" id="rSmooth" min="0" max="100"><output id="oSmooth"></output></div>
+  <div class="row"><label>Pressure → size</label><input type="checkbox" id="cPSize"></div>
+  <div class="row"><label>Min size</label><input type="range" id="rPMin" min="0" max="100"><output id="oPMin"></output></div>
+  <div class="row"><label>Pressure → opacity</label><input type="checkbox" id="cPOp"></div>
+  <div class="row"><label>Pressure → flow</label><input type="checkbox" id="cPFlow"></div>
+</div><div>
+  <h3>Pressure curve</h3>
+  <canvas id="curve"></canvas>
+  <div class="hint">Drag the points. Tap the graph to add a point; drag a point off the graph to remove it. Left = light touch, right = full press.</div>
+  <div class="seg" id="curvePresets" style="margin-top:8px"><button data-c="linear">Linear</button><button data-c="soft">Soft</button><button data-c="firm">Firm</button><button data-c="s">S-curve</button></div>
+</div></div>
+</div>
+
+<div class="pop" id="pSel">
+  <h3>Selection shape</h3>
+  <div class="seg" id="selShape"><button data-v="lasso">Lasso</button><button data-v="rect">Rectangle</button><button data-v="ellipse">Ellipse</button></div>
+  <h3 style="margin-top:14px">When drawing a selection</h3>
+  <div class="seg" id="selMode"><button data-v="new">New</button><button data-v="add">Add</button><button data-v="sub">Subtract</button></div>
+  <div class="seg" style="margin-top:14px"><button id="sAll">Select all</button><button id="sInv2">Invert</button><button id="sNone2">Deselect</button></div>
+</div>
+
+<div id="selBar">
+  <button id="sNone">Deselect</button><button id="sInv">Invert</button><button id="sFill">Fill</button><button id="sClear">Clear</button>
+</div>
+
+<div id="xfBar">
+  <div id="fxHead"><b>Transform</b><span id="xfWhat"></span><span id="xfRead"></span></div>
+  <div class="seg" id="xfMode" style="margin:8px 0"><button data-m="pixels">Pixels</button><button data-m="selection">Selection outline</button></div>
+  <div class="xfBtns">
+    <button id="xfFlipH" title="Flip horizontally">Flip ↔</button><button id="xfFlipV" title="Flip vertically">Flip ↕</button>
+    <button id="xfRot90" title="Rotate 90°">Rotate 90°</button><button id="xfUniform" title="Corner handles keep the proportions">Uniform</button>
+    <button id="xfReset">Reset</button>
+  </div>
+  <div class="btns" style="margin-top:8px"><button class="btn" id="xfCancel">Cancel</button><button class="btn pri" id="xfApply">Apply</button></div>
+</div>
+
+<div id="fxBar">
+  <div id="fxHead"><b>Gaussian blur</b><span id="fxWhat"></span></div>
+  <div class="row"><label style="width:auto">Strength</label><input type="range" id="fxR" min="0" max="100"><output id="fxRV" style="width:64px"></output></div>
+  <div class="btns" style="margin-top:4px"><button class="btn" id="fxCancel">Cancel</button><button class="btn pri" id="fxApply">Apply</button></div>
+</div>
+
+<div class="pop" id="pFx">
+  <h3>Filters</h3>
+  <div class="hint" id="fxTarget" style="margin:-4px 0 10px"></div>
+  <button class="fxItem" id="fxBlurItem"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="7.5" stroke-opacity=".5"/><circle cx="12" cy="12" r="10.5" stroke-opacity=".25"/></svg>
+    <span><b>Gaussian blur</b><br><small>Soften the layer, or only the selection</small></span></button>
+</div>
+
+<div class="pop" id="pColor">
+  <div class="pk"><canvas id="sv" width="250" height="200"></canvas><div class="mk" id="svMk"></div></div>
+  <div class="pk" style="margin-top:10px"><canvas id="hue" width="250" height="26"></canvas><div class="mk" id="hueMk"></div></div>
+  <div id="hexRow"><div id="curSw"></div><input id="hex" maxlength="7" spellcheck="false" autocomplete="off"></div>
+  <div id="recent"></div>
+</div>
+
+<div id="pLayers">
+  <div id="lHead"><h3>Layers</h3><button class="ib" id="lAdd" title="New layer"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button></div>
+  <div id="lList"></div>
+  <div class="row" id="lOpRow"><label>Opacity</label><input type="range" id="lOpacity" min="0" max="100"><output id="oLOp"></output></div>
+  <div id="lActs">
+    <button id="lUp">Up</button><button id="lDown">Down</button><button id="lDup">Duplicate</button><button id="lMerge">Merge ↓</button>
+    <button id="lRename">Rename</button><button id="lClear">Clear</button><button id="lDel" style="grid-column:span 2">Delete</button>
+  </div>
+</div>
+
+<div class="modal" id="dNew"><div class="card">
+  <h2>New canvas</h2>
+  <p style="margin:0 0 8px">Starts a new project. The current painting stays in Projects.</p>
+  <div class="presets" id="presets"></div>
+  <div class="row"><label>Width</label><input type="number" id="nW" min="64" max="8192"></div>
+  <div class="row"><label>Height</label><input type="number" id="nH" min="64" max="8192"></div>
+  <div class="row"><label>Paper color</label><input type="color" id="nBg" value="#ffffff"></div>
+  <div class="btns"><button class="btn" data-close>Cancel</button><button class="btn pri" id="nGo">Create</button></div>
+</div></div>
+
+<div class="modal" id="dProj"><div class="card">
+  <div id="projHead"><h2>Projects</h2>
+    <div class="grp"><button class="btn" id="pjOpenFile">Open file…</button><button class="btn" id="pjNew">New</button><button class="btn pri" data-close>Close</button></div></div>
+  <p style="margin:0 0 10px;font-size:13px">Every painting saves itself here with all its layers. Tap a picture to open it. <b>Export</b> writes a .tpaint file (a backup you can open again later or on another device).</p>
+  <div id="projGrid"></div>
+</div></div>
+<input type="file" id="projIn" hidden>
+
+<div class="modal" id="dHelp"><div class="card">
+  <h2>Gestures &amp; shortcuts</h2>
+  <ul style="padding-left:18px;margin:0">
+    <li><b>Pen</b> draws. Hold the pen's <b>side button</b> to erase.</li>
+    <li><b>Two fingers</b>: pan, pinch to zoom, twist to rotate (snaps straight near 0°).</li>
+    <li><b>One finger drag</b>: pan. <b>Hold one finger</b>: pick a color.</li>
+    <li><b>Two-finger tap</b>: undo. <b>Three-finger tap</b>: redo.</li>
+    <li><b>Select tool</b>: draw a lasso, rectangle or ellipse. Painting, erasing, Fill and Clear only affect the selected area. Tap the select button again for shape and add / subtract.</li>
+    <li>The <b>mirror</b> button flips the view (not the picture). The <b>lock</b> button freezes pan, zoom and rotation.</li>
+    <li>Your palm is ignored while the pen is near the screen.</li>
+    <li><b>Pencil</b>: tap the brush button again and pick Pencil. It has paper grain. Turn on Pressure → opacity to press lightly for a grainy line and harder to fill it in; with it off, the line is even and Density sets how grainy it is.</li>
+    <li><b>Brush settings</b>: tap the active brush or eraser button again. A test stroke at the top shows what the brush will paint.</li>
+    <li><b>Filters</b> (three-circles button): Gaussian blur. Drag Strength to preview, then Apply. With a selection, only the selected part of the layer is blurred.</li>
+    <li><b>Transform</b> (box-with-corners button, or T): moves, scales and rotates the selected part of the layer, or the whole layer with no selection. Drag inside the box to move, corners to scale, edge dots to stretch, the round knob to rotate (snaps at 45°). Two fingers still pan and zoom the view. "Selection outline" moves just the selection, not the pixels.</li>
+    <li>Rectangle and ellipse selections line up with the screen, even when the canvas is rotated.</li>
+    <li>Tapping the canvas closes any open panel without painting.</li>
+    <li>While you draw, bars and sliders the pen comes near fade away so you can paint under them; they come back when you lift the pen (switch it off in the menu: Hide UI near the pen).</li>
+    <li>Keyboard: B brush, P pencil, E eraser, I eyedropper, S select, M mirror, K lock view, Ctrl+D deselect, [ ] size, Ctrl+Z / Ctrl+Y, 0 fit, L layers, mouse wheel zoom, Space+drag or middle drag to pan.</li>
+    <li>Your painting is saved automatically on this device.</li>
+  </ul>
+  <div class="btns"><button class="btn pri" data-close>OK</button></div>
+</div></div>
+
+<svg width="0" height="0" style="position:absolute" id="filters"><filter id="lumAlpha" color-interpolation-filters="sRGB"><feColorMatrix type="luminanceToAlpha"/></filter></svg>
+<input type="file" id="fileIn" accept="image/*" hidden>
+<div id="toast"></div>
+
+<script>
+'use strict';
+const $ = s => document.querySelector(s);
+const TAU = Math.PI * 2;
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const now = () => performance.now();
+const MAX_LAYERS = 40;
+const UNDO_BUDGET = 90e6;            // pixels kept for undo (about 360 MB)
+
+// ---------------------------------------------------------------- state
+const view = $('#view');
+const vctx = view.getContext('2d', { alpha: false, desynchronized: true });
+let dpr = 1, VW = 0, VH = 0;
+const doc = { w: 0, h: 0, bg: '#ffffff', layers: [], active: 0 };
+const V = { s: 1, r: 0, x: 0, y: 0, f: 1 };      // screen = R(r)·s·F·doc + (x,y), CSS px; F mirrors x when f = -1
+let snap, snapCtx, buf, bctx, tmp, tctx;          // stroke scratch canvases (doc size)
+const sel = { active: false, c: null, ctx: null, outline: [] };   // selection mask (white = selected)
+let selDraw = null, filterOK = true;
+let layerSeq = 0;
+let needRender = true;
+
+const tools = {
+  brush:  { size: 14, opacity: 1, flow: 1, hardness: 0.8, spacing: 0.08 },
+  pencil: { size: 7, opacity: 0.9, flow: 1, hardness: 0.4, spacing: 0.05, grain: 0.3, grainScale: 1, density: 1 },
+  eraser: { size: 50, opacity: 1, flow: 1, hardness: 0.8, spacing: 0.08 },
+};
+let brushKind = 'brush';                           // what the brush tool paints with: 'brush' (round) or 'pencil'
+const prefs = { smoothing: 0.3, pSize: true, pMin: 0.15, pFlow: false, pOp: false, curve: [[0, 0], [1, 1]], fingerDraw: false,
+                rotate: true, lockView: false, selShape: 'lasso', selMode: 'new', autoHide: true };
+let tool = 'brush', prevTool = 'brush', paintTool = 'brush';
+let color = { h: 215, s: 0.85, v: 0.25 };
+let recent = [];
+
+// ---------------------------------------------------------------- helpers
+function capture(el, e) { try { el.setPointerCapture(e.pointerId); } catch (_) {} }
+function makeCanvas(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
+function crop(src, x, y, w, h) { const c = makeCanvas(w, h); c.getContext('2d').drawImage(src, x, y, w, h, 0, 0, w, h); return c; }
+function toBlob(c) { return new Promise(r => c.toBlob(r, 'image/png')); }
+function hsv2rgb({ h, s, v }) {
+  const f = n => { const k = (n + h / 60) % 6; return v - v * s * Math.max(0, Math.min(k, 4 - k, 1)); };
+  return [Math.round(f(5) * 255), Math.round(f(3) * 255), Math.round(f(1) * 255)];
+}
+function rgb2hsv(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+  let h = 0;
+  if (d) h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  h = (h * 60 + 360) % 360;
+  return { h, s: mx ? d / mx : 0, v: mx };
+}
+const hex2 = n => n.toString(16).padStart(2, '0');
+const rgbHex = ([r, g, b]) => '#' + hex2(r) + hex2(g) + hex2(b);
+const colorHex = () => rgbHex(hsv2rgb(color));
+let toastT;
+function toast(msg, ms = 1800) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), ms); }
+
+// ---------------------------------------------------------------- view transform
+function toDoc(cx, cy) {
+  const dx = cx - V.x, dy = cy - V.y, c = Math.cos(V.r), s = Math.sin(V.r);
+  return { x: V.f * (dx * c + dy * s) / V.s, y: (-dx * s + dy * c) / V.s };
+}
+function placeAnchor(ax, ay, cx, cy) {          // put doc point (ax,ay) under screen point (cx,cy)
+  ax *= V.f;
+  const c = Math.cos(V.r) * V.s, s = Math.sin(V.r) * V.s;
+  V.x = cx - (c * ax - s * ay); V.y = cy - (s * ax + c * ay);
+}
+function fitView() {
+  const top = 60, bot = document.body.classList.contains('narrow') ? 60 : 0, pad = VW < 600 ? 10 : 24, side = 50;
+  V.r = 0; V.f = 1; $('#bFlip').classList.remove('on');
+  V.s = Math.max(0.03, Math.min((VW - pad * 2 - side) / doc.w, (VH - top - bot - pad * 2) / doc.h));
+  V.x = side + (VW - side - doc.w * V.s) / 2; V.y = top + (VH - top - bot - doc.h * V.s) / 2;
+  needRender = true;
+}
+// Phones held upright don't have room for every button in one row: the tools and the
+// mirror/lock buttons move to a bar at the bottom of the screen.
+function layoutBars() {
+  const narrow = innerWidth < 680;
+  document.body.classList.toggle('narrow', narrow);
+  if (narrow) { if ($('#gTools').parentNode.id !== 'bottom') $('#bottom').append($('#gTools'), $('#gView')); }
+  else if ($('#gTools').parentNode.id === 'bottom') { $('#gLeft').after($('#gTools')); $('#topRight').prepend($('#gView')); }
+}
+function setFlip() {
+  const cx = VW / 2, cy = VH / 2, a = toDoc(cx, cy);
+  V.f = -V.f; V.r = -V.r;
+  placeAnchor(a.x, a.y, cx, cy);
+  $('#bFlip').classList.toggle('on', V.f < 0);
+  toast(V.f < 0 ? 'View mirrored' : 'View normal', 900); needRender = true;
+}
+function setLock(v) {
+  prefs.lockView = v; $('#bLock').classList.toggle('on', v);
+  $('#lockShackle').setAttribute('d', v ? 'M8 11V8a4 4 0 0 1 8 0v3' : 'M8 11V8a4 4 0 0 1 7.5-1.9');
+  savePrefs();
+}
+function zoomAt(cx, cy, f) {
+  if (prefs.lockView) return;
+  const a = toDoc(cx, cy);
+  V.s = clamp(V.s * f, 0.03, 64);
+  placeAnchor(a.x, a.y, cx, cy); needRender = true;
+}
+function resize() {
+  const ow = VW, oh = VH;
+  dpr = window.devicePixelRatio || 1; VW = innerWidth; VH = innerHeight;
+  layoutBars();
+  view.width = Math.round(VW * dpr); view.height = Math.round(VH * dpr);
+  if (ow > 200 && oh > 200) { V.x += (VW - ow) / 2; V.y += (VH - oh) / 2; } else if (doc.w) fitView();
+  needRender = true;
+}
+
+// ---------------------------------------------------------------- document & layers
+function newDoc(w, h, bg) {
+  doc.w = w; doc.h = h; doc.bg = bg || '#ffffff'; doc.layers = []; doc.active = 0; layerSeq = 0;
+  snap = makeCanvas(w, h); snapCtx = snap.getContext('2d');
+  buf = makeCanvas(w, h); bctx = buf.getContext('2d');
+  tmp = makeCanvas(w, h); tctx = tmp.getContext('2d');
+  sel.active = false; sel.c = null; sel.ctx = null; sel.outline = []; selDraw = null; syncSelBar();
+  undoStack.length = 0; redoStack.length = 0; undoPixels = 0; updateUndoBtns();
+}
+function makeLayer(name) {
+  const canvas = makeCanvas(doc.w, doc.h);
+  const L = { id: ++layerSeq, name: name || 'Layer ' + layerSeq, canvas, ctx: canvas.getContext('2d'),
+              visible: true, opacity: 1, saveDirty: true, blob: null };
+  const k = 60 / Math.max(doc.w, doc.h);
+  L.thumb = makeCanvas(Math.max(1, Math.round(doc.w * k)), Math.max(1, Math.round(doc.h * k)));
+  L.tctx = L.thumb.getContext('2d');
+  L.tw = document.createElement('div'); L.tw.className = 'tw'; L.tw.append(L.thumb);
+  return L;
+}
+function updateThumb(L) {
+  L.tctx.clearRect(0, 0, L.thumb.width, L.thumb.height);
+  L.tctx.drawImage(L.canvas, 0, 0, L.thumb.width, L.thumb.height);
+}
+const activeLayer = () => doc.layers[doc.active];
+function changed() { buildLayers(); needRender = true; scheduleSave(); }
+function insertLayer(L, idx) { doc.layers.splice(idx, 0, L); doc.active = idx; changed(); }
+function removeLayer(idx) { const [L] = doc.layers.splice(idx, 1); doc.active = clamp(idx - 1, 0, doc.layers.length - 1); changed(); return L; }
+function putPixels(L, c, x, y) {
+  L.ctx.clearRect(x, y, c.width, c.height); L.ctx.drawImage(c, x, y);
+  L.saveDirty = true; updateThumb(L);
+}
+
+// ---------------------------------------------------------------- undo
+const undoStack = [], redoStack = [];
+let undoPixels = 0;
+function pushUndo(e) {
+  e.px = e.px || 0;
+  undoStack.push(e); undoPixels += e.px;
+  for (const r of redoStack) undoPixels -= r.px;
+  redoStack.length = 0;
+  while (undoStack.length > 1 && (undoPixels > UNDO_BUDGET || undoStack.length > 100)) undoPixels -= undoStack.shift().px;
+  updateUndoBtns();
+}
+function undo() {
+  if (stroke || fx || xf) return;
+  const e = undoStack.pop(); if (!e) return toast('Nothing to undo', 900);
+  e.undo(); redoStack.push(e); changed(); updateUndoBtns();
+}
+function redo() {
+  if (stroke || fx || xf) return;
+  const e = redoStack.pop(); if (!e) return toast('Nothing to redo', 900);
+  e.redo(); undoStack.push(e); changed(); updateUndoBtns();
+}
+function updateUndoBtns() { $('#bUndo').disabled = !undoStack.length; $('#bRedo').disabled = !redoStack.length; }
+
+// ---------------------------------------------------------------- brush engine
+// Input points are smoothed, joined with quadratic curves through midpoints, and stamped
+// with round dabs into a stroke buffer. The buffer is composited onto the layer (with the
+// stroke opacity) over a snapshot of the layer taken when the stroke began, so overlapping
+// dabs in one stroke never darken past the chosen opacity.
+const sprite = makeCanvas(256, 256), spx = sprite.getContext('2d');
+let spriteKey = '';
+function ensureSprite(t, ts) {
+  const rgb = t === 'eraser' ? [0, 0, 0] : hsv2rgb(color);
+  const h = ts.hardness, key = rgb.join() + '|' + h;
+  if (key === spriteKey) return; spriteKey = key;
+  spx.clearRect(0, 0, 256, 256);
+  const g = spx.createRadialGradient(128, 128, 0, 128, 128, 128), [r, gg, b] = rgb;
+  g.addColorStop(0, `rgba(${r},${gg},${b},1)`);
+  for (let i = 0; i <= 10; i++) {
+    const f = i / 10, a = 1 - f * f * (3 - 2 * f);
+    g.addColorStop(Math.min(1, h + (1 - h) * f), `rgba(${r},${gg},${b},${a.toFixed(3)})`);
+  }
+  spx.fillStyle = g; spx.fillRect(0, 0, 256, 256);
+  graySprites.clear();
+}
+// Pressure -> opacity: dabs go into the buffer as grey levels (grey = opacity) on black with the
+// 'lighten' blend, so each pixel keeps the strongest pressure that touched it instead of piling up.
+// The grey buffer is turned into alpha (SVG luminanceToAlpha filter) and tinted when composited.
+const graySprites = new Map();
+function graySprite(level, hard) {
+  let c = graySprites.get(level);
+  if (c) return c;
+  c = makeCanvas(128, 128); const x = c.getContext('2d'), v = Math.round(level * 255);
+  const g = x.createRadialGradient(64, 64, 0, 64, 64, 64);
+  g.addColorStop(0, `rgba(${v},${v},${v},1)`);
+  for (let i = 0; i <= 10; i++) {
+    const f = i / 10, a = 1 - f * f * (3 - 2 * f);
+    g.addColorStop(Math.min(1, hard + (1 - hard) * f), `rgba(${v},${v},${v},${a.toFixed(3)})`);
+  }
+  x.fillStyle = g; x.fillRect(0, 0, 128, 128);
+  graySprites.set(level, c);
+  return c;
+}
+
+// Pencil: the stroke is a grey "pressure" mask M (0..0.62, same lighten trick as above). A fixed paper
+// grain G (0..0.5, tiled in canvas space so it stays put under repeated strokes) is added, and a pixel
+// gets graphite where M + G rises above 0.5. A light touch only catches the high points of the paper;
+// pressing harder fills in the valleys. Texture sets how soft that threshold is.
+const GRAIN_N = 256;
+const grain = (() => {
+  const N = GRAIN_N, v = new Float32Array(N * N);
+  let s = 0x9e3779b9;                                     // fixed seed: the same paper every time
+  const rnd = () => { s |= 0; s = s + 0x6d2b79f5 | 0; let t = Math.imul(s ^ s >>> 15, 1 | s); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+  for (const [cell, amp] of [[1, 0.55], [2, 0.6], [4, 0.3], [8, 0.12], [16, 0.06]]) {   // mostly fine tooth
+    const L = N / cell, lat = new Float32Array(L * L);
+    for (let i = 0; i < lat.length; i++) lat[i] = rnd();
+    for (let y = 0; y < N; y++) {
+      const gy = y / cell, y0 = gy | 0, fy0 = gy - y0, fy = fy0 * fy0 * (3 - 2 * fy0), r0 = (y0 % L) * L, r1 = ((y0 + 1) % L) * L;
+      for (let x = 0; x < N; x++) {
+        const gx = x / cell, x0 = gx | 0, fx0 = gx - x0, fx = fx0 * fx0 * (3 - 2 * fx0), c0 = x0 % L, c1 = (x0 + 1) % L;
+        const a = lat[r0 + c0] + (lat[r0 + c1] - lat[r0 + c0]) * fx, b = lat[r1 + c0] + (lat[r1 + c1] - lat[r1 + c0]) * fx;
+        v[y * N + x] += amp * (a + (b - a) * fy);
+      }
+    }
+  }
+  // Equalise so the grain values are spread evenly: then the share of paper covered tracks pressure.
+  const order = Array.from({ length: N * N }, (_, i) => i).sort((a, b) => v[a] - v[b]);
+  const data = new Uint8Array(N * N);
+  order.forEach((k, rank) => data[k] = Math.floor(rank / (N * N) * 128));   // 0..127 = 0..0.5
+  const canvas = makeCanvas(N, N), cx = canvas.getContext('2d'), img = cx.createImageData(N, N);
+  for (let i = 0; i < N * N; i++) { img.data[i * 4] = img.data[i * 4 + 1] = img.data[i * 4 + 2] = data[i]; img.data[i * 4 + 3] = 255; }
+  cx.putImageData(img, 0, 0);
+  return { canvas, data };
+})();
+const pencilScr = makeCanvas(64, 64), pscx = pencilScr.getContext('2d');
+const grainPat = pscx.createPattern(grain.canvas, 'repeat');
+const pencilFilters = new Set();
+const pencilSoftness = tex => Math.round((0.04 + 0.36 * tex) * 100) / 100;     // width of the threshold ramp
+function pencilFilter(tex) {               // SVG filter: grey M+G → alpha ramp from 0.5 to 0.5 + softness
+  const w = pencilSoftness(tex), id = 'pencil' + Math.round(w * 100);
+  if (!pencilFilters.has(id)) {
+    const NS = 'http://www.w3.org/2000/svg', f = document.createElementNS(NS, 'filter');
+    f.id = id; f.setAttribute('color-interpolation-filters', 'sRGB');
+    const m = document.createElementNS(NS, 'feColorMatrix'); m.setAttribute('type', 'luminanceToAlpha');
+    const ct = document.createElementNS(NS, 'feComponentTransfer'), fa = document.createElementNS(NS, 'feFuncA');
+    fa.setAttribute('type', 'linear'); fa.setAttribute('slope', String(1 / w)); fa.setAttribute('intercept', String(-0.5 / w));
+    ct.append(fa); f.append(m, ct); $('#filters').append(f); pencilFilters.add(id);
+  }
+  return id;
+}
+function pencilMask(r, ts) {               // fills tmp's rect r with the pencil stroke in the stroke colour
+  const gs = ts.grainScale || 1;
+  if (filterOK) {
+    if (pencilScr.width < r.w || pencilScr.height < r.h) { pencilScr.width = Math.max(pencilScr.width, r.w); pencilScr.height = Math.max(pencilScr.height, r.h); }
+    pscx.globalCompositeOperation = 'copy'; pscx.drawImage(buf, r.x, r.y, r.w, r.h, 0, 0, r.w, r.h);
+    pscx.globalCompositeOperation = 'lighter';
+    grainPat.setTransform(new DOMMatrix([gs, 0, 0, gs, -r.x, -r.y]));
+    pscx.fillStyle = grainPat; pscx.fillRect(0, 0, r.w, r.h);
+    tctx.filter = 'url(#' + pencilFilter(ts.grain) + ')';
+    tctx.drawImage(pencilScr, 0, 0, r.w, r.h, r.x, r.y, r.w, r.h);
+    tctx.filter = 'none';
+    tctx.globalCompositeOperation = 'source-in';
+    tctx.fillStyle = stroke.col; tctx.fillRect(r.x, r.y, r.w, r.h);
+  } else {                                 // CPU fallback, same maths
+    const g = bctx.getImageData(r.x, r.y, r.w, r.h).data, out = tctx.createImageData(r.w, r.h), o = out.data;
+    const [cr, cg, cb] = hexRgb(stroke.col), w = pencilSoftness(ts.grain);
+    for (let j = 0, i = 0; j < r.h; j++) {
+      const gy = (Math.floor((r.y + j) / gs) & 255) << 8;
+      for (let x = 0; x < r.w; x++, i += 4) {
+        const G = grain.data[gy | (Math.floor((r.x + x) / gs) & 255)];
+        o[i] = cr; o[i + 1] = cg; o[i + 2] = cb; o[i + 3] = clamp(((g[i] + G) / 255 - 0.5) / w, 0, 1) * 255;
+      }
+    }
+    tctx.putImageData(out, r.x, r.y);
+  }
+}
+const emptyBB = () => ({ x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity });
+function clampBB(b) {
+  const x = Math.max(0, Math.floor(b.x0)), y = Math.max(0, Math.floor(b.y0));
+  const x1 = Math.min(doc.w, Math.ceil(b.x1)), y1 = Math.min(doc.h, Math.ceil(b.y1));
+  return x1 > x && y1 > y ? { x, y, w: x1 - x, h: y1 - y } : null;
+}
+let stroke = null;
+// Pressure curve: user points [x, y] (pen pressure → brush pressure) joined by a monotone cubic spline,
+// baked into a 257-entry lookup table whenever the points change.
+let curveLUT = null;
+function curveEval(pts, x) {
+  const n = pts.length;
+  if (x <= pts[0][0]) return pts[0][1];
+  if (x >= pts[n - 1][0]) return pts[n - 1][1];
+  const d = [], m = [];
+  for (let i = 0; i < n - 1; i++) d.push((pts[i + 1][1] - pts[i][1]) / Math.max(1e-6, pts[i + 1][0] - pts[i][0]));
+  m.push(d[0]);
+  for (let i = 1; i < n - 1; i++) m.push(d[i - 1] * d[i] <= 0 ? 0 : (d[i - 1] + d[i]) / 2);
+  m.push(d[n - 2]);
+  for (let i = 0; i < n - 1; i++) {                 // Fritsch–Carlson: keep each piece from overshooting
+    if (d[i] === 0) { m[i] = m[i + 1] = 0; continue; }
+    const a = m[i] / d[i], b = m[i + 1] / d[i], s = a * a + b * b;
+    if (s > 9) { const t = 3 / Math.sqrt(s); m[i] = t * a * d[i]; m[i + 1] = t * b * d[i]; }
+  }
+  let i = 0; while (x > pts[i + 1][0]) i++;
+  const h = pts[i + 1][0] - pts[i][0], t = (x - pts[i][0]) / h, t2 = t * t, t3 = t2 * t;
+  return (2 * t3 - 3 * t2 + 1) * pts[i][1] + (t3 - 2 * t2 + t) * h * m[i] + (-2 * t3 + 3 * t2) * pts[i + 1][1] + (t3 - t2) * h * m[i + 1];
+}
+function bakeCurve() {
+  curveLUT = new Float32Array(257);
+  for (let i = 0; i <= 256; i++) curveLUT[i] = clamp(curveEval(prefs.curve, i / 256), 0, 1);
+}
+function pressureCurve(p) {
+  if (!curveLUT) bakeCurve();
+  const f = clamp(p, 0, 1) * 256, i = Math.min(255, f | 0);
+  return curveLUT[i] + (curveLUT[i + 1] - curveLUT[i]) * (f - i);
+}
+let lastPenPressure = -1;
+function radiusAt(p) { return stroke.ts.size / 2 * (prefs.pSize ? prefs.pMin + (1 - prefs.pMin) * p : 1); }
+function spacingAt(p) { return Math.max(0.35, radiusAt(p) * 2 * stroke.ts.spacing); }
+
+function dab(x, y, p) {
+  const st = stroke;
+  let r = radiusAt(p), a = st.ts.flow * (prefs.pFlow ? p : 1);
+  if (r < 0.5) { a *= r / 0.5; r = 0.5; }
+  if (a <= 0.002) return;
+  bctx.globalAlpha = a;
+  if (st.mask) {
+    // Pencil: pressure only fills in the grain when "Pressure → opacity" is on; otherwise every dab
+    // uses the same level, set by the pencil's Density.
+    const m = st.pencil ? (prefs.pOp ? p : 1) * (st.ts.density ?? 1) : p;
+    let lv = Math.max(1, Math.round(m * 32)) / 32;
+    if (st.pencil) lv *= 0.62;             // pencil mask: 0..0.62, grain (0..0.5) is added on top; above 0.5 shows
+    if (st.hard) { const v = Math.round(lv * 255); bctx.fillStyle = `rgb(${v},${v},${v})`; bctx.beginPath(); bctx.arc(x, y, r, 0, TAU); bctx.fill(); }
+    else bctx.drawImage(graySprite(lv, st.ts.hardness), x - r, y - r, r * 2, r * 2);
+  }
+  else if (st.hard) { bctx.beginPath(); bctx.arc(x, y, r, 0, TAU); bctx.fill(); }
+  else bctx.drawImage(sprite, x - r, y - r, r * 2, r * 2);
+  for (const b of [st.bb, st.dirty]) {
+    if (x - r - 2 < b.x0) b.x0 = x - r - 2; if (y - r - 2 < b.y0) b.y0 = y - r - 2;
+    if (x + r + 2 > b.x1) b.x1 = x + r + 2; if (y + r + 2 > b.y1) b.y1 = y + r + 2;
+  }
+}
+function walkTo(x, y, p) {                 // stamp dabs along a straight piece, carrying spacing over
+  const st = stroke, L = st.last, dx = x - L.x, dy = y - L.y, d = Math.hypot(dx, dy);
+  if (d < 1e-6) { L.p = p; return; }
+  let gone = 0;
+  while (gone + st.toNext <= d) {
+    gone += st.toNext;
+    const f = gone / d, pp = L.p + (p - L.p) * f;
+    dab(L.x + dx * f, L.y + dy * f, pp);
+    st.toNext = spacingAt(pp);
+  }
+  st.toNext -= d - gone;
+  st.last = { x, y, p };
+}
+function curveTo(c, e) {                   // quadratic from stroke.last via c to e
+  const s = stroke.last;
+  const len = Math.hypot(c.x - s.x, c.y - s.y) + Math.hypot(e.x - c.x, e.y - c.y);
+  const k = clamp(Math.ceil(len / 2), 1, 64);
+  for (let i = 1; i <= k; i++) {
+    const t = i / k, u = 1 - t, A = u * u, B = 2 * u * t, C = t * t;
+    walkTo(A * s.x + B * c.x + C * e.x, A * s.y + B * c.y + C * e.y, A * s.p + B * c.p + C * e.p);
+  }
+}
+function pushPoint(pt) {
+  const st = stroke, P = st.pts;
+  if (P.length) { const q = P[P.length - 1]; if (Math.hypot(pt.x - q.x, pt.y - q.y) < st.minD) { q.p = pt.p; return; } }
+  P.push(pt);
+  const n = P.length;
+  if (n === 1) { st.last = { ...pt }; dab(pt.x, pt.y, pt.p); st.toNext = spacingAt(pt.p); return; }
+  const a = P[n - 2], b = P[n - 1];
+  curveTo(a, { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, p: (a.p + b.p) / 2 });
+  if (P.length > 8) P.splice(0, P.length - 4);
+}
+function addRaw(x, y, p) {
+  const st = stroke;
+  st.raw = { x, y, p };
+  if (!st.sm) st.sm = { x, y, p };
+  else {
+    const a = 1 - prefs.smoothing * 0.9, s = st.sm;
+    s.x += (x - s.x) * a; s.y += (y - s.y) * a; s.p += (p - s.p) * Math.max(a, 0.5);
+  }
+  pushPoint({ ...st.sm });
+}
+function evPressure(e) {
+  if (e.pointerType !== 'pen') return 1;
+  lastPenPressure = Math.max(lastPenPressure, e.pressure || 0);
+  return pressureCurve(e.pressure || 0);
+}
+// ---------------------------------------------------------------- auto-hide UI while drawing
+// During a stroke or a selection drag, each bar or slider the pointer comes within FADE_NEAR px of
+// fades out, so the whole screen can be used as canvas. Everything comes back when the drag ends.
+const FADE_NEAR = 64;
+let fadeRects = null;
+function uiFadeStart() {
+  fadeRects = null;
+  if (!prefs.autoHide) return;
+  fadeRects = [];
+  for (const el of document.querySelectorAll('#top, #bottom, #selBar, .vs')) {
+    const r = el.getBoundingClientRect();
+    if (r.width && r.height) fadeRects.push({ el, r });          // skip hidden ones (e.g. no bottom bar on tablets)
+  }
+}
+function uiFadeAt(x, y) {
+  if (!fadeRects) return;
+  for (const { el, r } of fadeRects) {
+    const dx = Math.max(r.left - x, 0, x - r.right), dy = Math.max(r.top - y, 0, y - r.bottom);
+    el.classList.toggle('faded', dx * dx + dy * dy < FADE_NEAR * FADE_NEAR);
+  }
+}
+function uiFadeEnd() {
+  if (!fadeRects) return;
+  for (const { el } of fadeRects) el.classList.remove('faded');
+  fadeRects = null;
+}
+
+function strokeInput(e) {
+  uiFadeAt(e.clientX, e.clientY);
+  const list = (e.getCoalescedEvents && e.getCoalescedEvents()) || [];
+  for (const ev of (list.length ? list : [e])) { const d = toDoc(ev.clientX, ev.clientY); addRaw(d.x, d.y, evPressure(ev)); }
+}
+function beginStroke(e, t) {
+  const L = activeLayer();
+  if (!L.visible) { toast('This layer is hidden'); return false; }
+  const pencil = t === 'brush' && brushKind === 'pencil', ts = pencil ? tools.pencil : tools[t];
+  ensureSprite(t, ts);
+  snapCtx.globalCompositeOperation = 'copy'; snapCtx.drawImage(L.canvas, 0, 0); snapCtx.globalCompositeOperation = 'source-over';
+  const pop = prefs.pOp && !pencil, mask = pop || pencil, col = t === 'eraser' ? '#000' : colorHex();
+  bctx.globalCompositeOperation = 'source-over'; bctx.globalAlpha = 1;
+  if (mask) { bctx.fillStyle = '#000'; bctx.fillRect(0, 0, doc.w, doc.h); bctx.globalCompositeOperation = 'lighten'; }
+  else { bctx.clearRect(0, 0, doc.w, doc.h); bctx.fillStyle = col; }
+  stroke = { L, t, ts, pop, pencil, mask, col, hard: ts.hardness >= 0.99, pts: [], sm: null, raw: null, last: null, toNext: 0,
+             minD: 0.4 / V.s, bb: emptyBB(), dirty: emptyBB(), id: e.pointerId };
+  if (t === 'brush') addRecent(colorHex());
+  uiFadeStart();
+  strokeInput(e);
+  return true;
+}
+function flushStroke() {
+  const st = stroke, r = clampBB(st.dirty);
+  st.dirty = emptyBB();
+  if (!r) return;
+  let src = buf;
+  if (st.mask || sel.active) {                // build the stroke's paint for this rect in tmp
+    src = tmp;
+    tctx.save();
+    tctx.clearRect(r.x, r.y, r.w, r.h);
+    if (st.pencil) pencilMask(r, st.ts);
+    else if (st.pop) {
+      if (filterOK) {
+        tctx.filter = 'url(#lumAlpha)';
+        tctx.drawImage(buf, r.x, r.y, r.w, r.h, r.x, r.y, r.w, r.h);
+        tctx.filter = 'none';
+        tctx.globalCompositeOperation = 'source-in';
+        tctx.fillStyle = st.col; tctx.fillRect(r.x, r.y, r.w, r.h);
+      } else {                                // CPU fallback: grey -> alpha
+        const g = bctx.getImageData(r.x, r.y, r.w, r.h).data, out = tctx.createImageData(r.w, r.h), o = out.data;
+        const [cr, cg, cb] = hexRgb(st.col);
+        for (let i = 0; i < o.length; i += 4) { o[i] = cr; o[i + 1] = cg; o[i + 2] = cb; o[i + 3] = g[i]; }
+        tctx.putImageData(out, r.x, r.y);
+      }
+    } else tctx.drawImage(buf, r.x, r.y, r.w, r.h, r.x, r.y, r.w, r.h);
+    if (sel.active) { tctx.globalCompositeOperation = 'destination-in'; tctx.drawImage(sel.c, r.x, r.y, r.w, r.h, r.x, r.y, r.w, r.h); }
+    tctx.restore();
+  }
+  const c = st.L.ctx;
+  c.save();
+  c.clearRect(r.x, r.y, r.w, r.h);
+  c.drawImage(snap, r.x, r.y, r.w, r.h, r.x, r.y, r.w, r.h);
+  c.globalAlpha = st.ts.opacity;
+  c.globalCompositeOperation = st.t === 'eraser' ? 'destination-out' : 'source-over';
+  c.drawImage(src, r.x, r.y, r.w, r.h, r.x, r.y, r.w, r.h);
+  c.restore();
+  needRender = true;
+}
+function endStroke() {
+  const st = stroke; if (!st) return;
+  uiFadeEnd();
+  if (st.raw && st.pts.length) {               // catch up with the pen (smoothing lag) and finish the curve
+    pushPoint({ ...st.raw });
+    const q = st.pts[st.pts.length - 1];
+    walkTo(q.x, q.y, q.p);
+  }
+  flushStroke();
+  stroke = null;
+  const r = clampBB(st.bb);
+  if (!r) return;
+  const L = st.L, before = crop(snap, r.x, r.y, r.w, r.h), after = crop(L.canvas, r.x, r.y, r.w, r.h);
+  pushUndo({ px: r.w * r.h * 2, undo() { putPixels(L, before, r.x, r.y); }, redo() { putPixels(L, after, r.x, r.y); } });
+  L.saveDirty = true; updateThumb(L); scheduleSave();
+}
+function cancelStroke() {
+  const st = stroke; if (!st) return;
+  uiFadeEnd();
+  stroke = null;
+  const r = clampBB(st.bb);
+  if (r) { st.L.ctx.clearRect(r.x, r.y, r.w, r.h); st.L.ctx.drawImage(snap, r.x, r.y, r.w, r.h, r.x, r.y, r.w, r.h); }
+  needRender = true;
+}
+
+// ---------------------------------------------------------------- brush sample (in brush settings)
+// Paints a test stroke with the real brush engine into a small offscreen "document", with the current
+// tool, colour and settings. Pen pressure goes light → full → light so the pressure options show.
+// The engine's document-sized buffers are swapped for small ones for the duration (synchronously).
+let sampleQ = false, sampleDoc = null;
+function queueSample() {
+  if (sampleQ || !$('#pBrush').classList.contains('open')) return;
+  sampleQ = true;
+  requestAnimationFrame(() => { sampleQ = false; try { renderSample(); } catch (e) { console.error(e); } });
+}
+function renderSample() {
+  const cv = $('#sample'), cssW = cv.clientWidth, cssH = cv.clientHeight, d = window.devicePixelRatio || 1;
+  if (!cssW || stroke) return;
+  const DW = Math.round(cssW * d), DH = Math.round(cssH * d);
+  if (cv.width !== DW || cv.height !== DH) { cv.width = DW; cv.height = DH; }
+  const kind = paintTool, t = kind === 'eraser' ? 'eraser' : 'brush', ts = tools[kind];
+  const k = Math.min(1, cssH * 0.55 / ts.size);       // big brushes: show the sample zoomed out
+  const W = Math.ceil(cssW / k), H = Math.ceil(cssH / k);
+  if (!sampleDoc || sampleDoc.W !== W || sampleDoc.H !== H)
+    sampleDoc = { W, H, L: makeCanvas(W, H), buf: makeCanvas(W, H), tmp: makeCanvas(W, H), snap: makeCanvas(W, H) };
+  const S = sampleDoc, Lc = S.L.getContext('2d');
+  const saved = { w: doc.w, h: doc.h, buf, bctx, tmp, tctx, snap, snapCtx, selActive: sel.active };
+  try {
+    doc.w = W; doc.h = H; sel.active = false;
+    buf = S.buf; bctx = buf.getContext('2d'); tmp = S.tmp; tctx = tmp.getContext('2d'); snap = S.snap; snapCtx = snap.getContext('2d');
+    Lc.clearRect(0, 0, W, H);
+    if (t === 'eraser') { Lc.fillStyle = '#8b909a'; Lc.fillRect(0, 0, W, H); }   // the eraser rubs out a grey band
+    snapCtx.globalCompositeOperation = 'copy'; snapCtx.drawImage(S.L, 0, 0); snapCtx.globalCompositeOperation = 'source-over';
+    const pencil = kind === 'pencil', pop = prefs.pOp && !pencil, mask = pop || pencil, col = t === 'eraser' ? '#000' : colorHex();
+    ensureSprite(t, ts);
+    bctx.globalCompositeOperation = 'source-over'; bctx.globalAlpha = 1;
+    if (mask) { bctx.fillStyle = '#000'; bctx.fillRect(0, 0, W, H); bctx.globalCompositeOperation = 'lighten'; }
+    else { bctx.clearRect(0, 0, W, H); bctx.fillStyle = col; }
+    stroke = { L: { ctx: Lc, canvas: S.L }, t, ts, pop, pencil, mask, col, hard: ts.hardness >= 0.99, pts: [], sm: null, raw: null,
+               last: null, toNext: 0, minD: 0.4, bb: emptyBB(), dirty: emptyBB(), id: -1 };
+    const pad = ts.size * 0.6 + 8, amp = Math.max(0, H / 2 - pad) * 0.8, n = 160;
+    for (let i = 0; i <= n; i++) {
+      const f = i / n;
+      addRaw(pad + (W - 2 * pad) * f, H / 2 - Math.sin(f * TAU) * amp, pressureCurve(0.04 + 0.96 * Math.sin(f * Math.PI)));
+    }
+    const st = stroke;
+    if (st.raw && st.pts.length) { pushPoint({ ...st.raw }); const q = st.pts[st.pts.length - 1]; walkTo(q.x, q.y, q.p); }
+    flushStroke();
+  } finally {
+    stroke = null;
+    doc.w = saved.w; doc.h = saved.h; sel.active = saved.selActive;
+    buf = saved.buf; bctx = saved.bctx; tmp = saved.tmp; tctx = saved.tctx; snap = saved.snap; snapCtx = saved.snapCtx;
+  }
+  const c = cv.getContext('2d');
+  c.setTransform(1, 0, 0, 1, 0, 0);
+  c.fillStyle = doc.bg; c.fillRect(0, 0, DW, DH);
+  c.imageSmoothingEnabled = k < 1; c.imageSmoothingQuality = 'high';
+  c.drawImage(S.L, 0, 0, W, H, 0, 0, W * k * d, H * k * d);
+  $('#sampleNote').textContent = k < 1 ? `Test stroke, shown at ${Math.round(k * 100)}% (brush is ${ts.size} px)` : 'Test stroke at 100%: light → full → light pen pressure';
+}
+
+// ---------------------------------------------------------------- eyedropper
+const pk = makeCanvas(1, 1), pkx = pk.getContext('2d', { willReadFrequently: true });
+let pickRing = null;
+function sampleAt(cx, cy) {
+  const d = toDoc(cx, cy), x = Math.floor(d.x), y = Math.floor(d.y);
+  pickRing = { x: cx, y: cy };
+  needRender = true;
+  if (x < 0 || y < 0 || x >= doc.w || y >= doc.h) return;
+  pkx.globalAlpha = 1; pkx.fillStyle = doc.bg; pkx.fillRect(0, 0, 1, 1);
+  for (const L of doc.layers) if (L.visible && L.opacity > 0) { pkx.globalAlpha = L.opacity; pkx.drawImage(L.canvas, x, y, 1, 1, 0, 0, 1, 1); }
+  const p = pkx.getImageData(0, 0, 1, 1).data;
+  setColor(rgb2hsv(p[0], p[1], p[2]), true);
+}
+
+// ---------------------------------------------------------------- selection
+// The selection is a doc-size mask canvas (white = selected). Strokes, Fill and Clear are
+// clipped to it; the outlines of the shapes that built it are drawn as two-tone dashes.
+function ensureSel() { if (!sel.c) { sel.c = makeCanvas(doc.w, doc.h); sel.ctx = sel.c.getContext('2d', { willReadFrequently: true }); } }
+function syncSelBar() {
+  $('#selBar').classList.toggle('open', sel.active);
+  sel.outline = sel.active ? traceMask() : [];
+  needRender = true;
+}
+// Marching squares over the selection mask: one outline for the real shape, however it was built
+// (added, subtracted, inverted). Returns closed polylines as flat [x0,y0,x1,y1,...] arrays in doc px.
+function traceMask() {
+  const w = doc.w, h = doc.h, k = Math.max(1, Math.ceil(Math.sqrt(w * h / 1.5e6)));
+  const data = sel.ctx.getImageData(0, 0, w, h).data;
+  const gw = Math.ceil(w / k) + 2, gh = Math.ceil(h / k) + 2;          // one padding sample on each side
+  const val = new Uint8Array(gw * gh);
+  for (let j = 1; j < gh - 1; j++) {
+    const y = Math.min((j - 1) * k, h - 1) * w;
+    for (let i = 1; i < gw - 1; i++) val[j * gw + i] = data[(y + Math.min((i - 1) * k, w - 1)) * 4 + 3];
+  }
+  const px = i => clamp((i - 1) * k, 0, w), py = j => clamp((j - 1) * k, 0, h);
+  const adj = new Map(), pos = new Map();
+  const edgePt = (key, ax, ay, va, bx, by, vb) => {
+    if (!pos.has(key)) { const t = (128 - va) / (vb - va); pos.set(key, [ax + (bx - ax) * t, ay + (by - ay) * t]); }
+    return key;
+  };
+  const link = (a, b) => { (adj.get(a) || adj.set(a, []).get(a)).push(b); (adj.get(b) || adj.set(b, []).get(b)).push(a); };
+  for (let j = 0; j < gh - 1; j++) for (let i = 0; i < gw - 1; i++) {
+    const o = j * gw + i, a = val[o], b = val[o + 1], c = val[o + gw + 1], d = val[o + gw];   // tl tr br bl
+    const A = a >= 128, B = b >= 128, C = c >= 128, D = d >= 128;
+    if (A === B && B === C && C === D) continue;
+    const x0 = px(i), x1 = px(i + 1), y0 = py(j), y1 = py(j + 1);
+    const T = A !== B ? edgePt(o * 2, x0, y0, a, x1, y0, b) : -1;
+    const Bo = D !== C ? edgePt((o + gw) * 2, x0, y1, d, x1, y1, c) : -1;
+    const L = A !== D ? edgePt(o * 2 + 1, x0, y0, a, x0, y1, d) : -1;
+    const R = B !== C ? edgePt((o + 1) * 2 + 1, x1, y0, b, x1, y1, c) : -1;
+    const e = [T, R, Bo, L].filter(v => v >= 0);
+    if (e.length === 2) link(e[0], e[1]);
+    else if (A) { link(T, L); link(R, Bo); }      // saddle, tl & br inside
+    else { link(T, R); link(L, Bo); }             // saddle, tr & bl inside
+  }
+  const loops = [], seen = new Set();
+  for (const start of adj.keys()) {
+    if (seen.has(start)) continue;
+    const pts = []; let prev = -1, cur = start;
+    while (cur !== undefined && !seen.has(cur)) {
+      seen.add(cur); const p = pos.get(cur); pts.push(p[0], p[1]);
+      const n = adj.get(cur), next = n[0] !== prev ? n[0] : n[1];
+      prev = cur; cur = next;
+    }
+    if (pts.length >= 6) loops.push(pts);
+  }
+  return loops;
+}
+function startSel(e) {
+  const d = toDoc(e.clientX, e.clientY);
+  let mode = prefs.selMode;
+  if (e.shiftKey) mode = 'add'; else if (e.altKey) mode = 'sub';
+  const s = { x: e.clientX, y: e.clientY };
+  selDraw = { id: e.pointerId, shape: prefs.selShape, mode, a: d, b: d, sa: s, sb: s, pts: [d] };
+  hover = null; needRender = true;
+  uiFadeStart(); uiFadeAt(e.clientX, e.clientY);
+}
+function moveSel(e) {
+  uiFadeAt(e.clientX, e.clientY);
+  const list = (e.getCoalescedEvents && e.getCoalescedEvents()) || [];
+  for (const ev of (list.length ? list : [e])) {
+    const d = toDoc(ev.clientX, ev.clientY), P = selDraw.pts, q = P[P.length - 1];
+    selDraw.b = d; selDraw.sb = { x: ev.clientX, y: ev.clientY };
+    if (Math.hypot(d.x - q.x, d.y - q.y) > 2 / V.s) P.push(d);
+  }
+  needRender = true;
+}
+// Rectangles and ellipses are drawn in screen space (lined up with the phone/tablet screen, even when the
+// canvas view is rotated or mirrored) and then mapped onto the canvas.
+function selPolygon(sd) {
+  if (sd.shape === 'lasso') return sd.pts;
+  const A = sd.sa, B = sd.sb;
+  if (sd.shape === 'rect') return [A, { x: B.x, y: A.y }, B, { x: A.x, y: B.y }].map(p => toDoc(p.x, p.y));
+  const cx = (A.x + B.x) / 2, cy = (A.y + B.y) / 2, rx = Math.abs(B.x - A.x) / 2, ry = Math.abs(B.y - A.y) / 2, P = [];
+  for (let i = 0; i < 96; i++) P.push(toDoc(cx + rx * Math.cos(i / 96 * TAU), cy + ry * Math.sin(i / 96 * TAU)));
+  return P;
+}
+function endSel(cancel) {
+  const sd = selDraw; selDraw = null; needRender = true;
+  uiFadeEnd();
+  if (cancel || !sd) return;
+  const P = selPolygon(sd);
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const p of P) { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y); }
+  if ((maxX - minX) * V.s < 4 || (maxY - minY) * V.s < 4 || P.length < 3) {   // a tap
+    if (sd.mode === 'new') deselect();
+    return;
+  }
+  if (sd.mode === 'sub' && !sel.active) return;
+  ensureSel();
+  const c = sel.ctx;
+  if (sd.mode === 'new' || !sel.active) c.clearRect(0, 0, doc.w, doc.h);
+  c.save();
+  c.globalCompositeOperation = sd.mode === 'sub' ? 'destination-out' : 'source-over';
+  c.fillStyle = '#fff'; tracePoly(c, P, true); c.fill();
+  c.restore();
+  sel.active = true; syncSelBar();
+}
+function deselect() { sel.active = false; syncSelBar(); }
+function selectAll() {
+  ensureSel(); sel.ctx.globalCompositeOperation = 'source-over'; sel.ctx.fillStyle = '#fff'; sel.ctx.fillRect(0, 0, doc.w, doc.h);
+  sel.active = true; syncSelBar();
+}
+function invertSel() {
+  if (!sel.active) return selectAll();
+  const c = sel.ctx; c.save(); c.globalCompositeOperation = 'xor'; c.fillStyle = '#fff'; c.fillRect(0, 0, doc.w, doc.h); c.restore();
+  syncSelBar();
+}
+function editLayer(fn) {                  // run fn on the active layer's context, undoable
+  const L = activeLayer(), before = crop(L.canvas, 0, 0, doc.w, doc.h);
+  fn(L.ctx);
+  const after = crop(L.canvas, 0, 0, doc.w, doc.h);
+  L.saveDirty = true; updateThumb(L); changed();
+  pushUndo({ px: doc.w * doc.h * 2, undo() { putPixels(L, before, 0, 0); }, redo() { putPixels(L, after, 0, 0); } });
+}
+function clearSel() {
+  if (!sel.active) return;
+  editLayer(c => { c.save(); c.globalCompositeOperation = 'destination-out'; c.drawImage(sel.c, 0, 0); c.restore(); });
+}
+function fillSel() {
+  if (!sel.active) return;
+  if (!activeLayer().visible) return toast('This layer is hidden');
+  tctx.save(); tctx.clearRect(0, 0, doc.w, doc.h); tctx.fillStyle = colorHex(); tctx.fillRect(0, 0, doc.w, doc.h);
+  tctx.globalCompositeOperation = 'destination-in'; tctx.drawImage(sel.c, 0, 0); tctx.restore();
+  addRecent(colorHex());
+  editLayer(c => { c.save(); c.globalAlpha = tools[brushKind].opacity; c.drawImage(tmp, 0, 0); c.restore(); });
+}
+function tracePoly(c, P, close) { c.beginPath(); P.forEach((p, i) => i ? c.lineTo(p.x, p.y) : c.moveTo(p.x, p.y)); if (close) c.closePath(); }
+function drawSelectionOutline(c) {            // called with the doc transform active
+  const loops = !sel.active ? [] : xf && xf.mask ? sel.outline.map(xfMapLoop) : sel.outline;
+  if (!loops.length && !selDraw) return;
+  const u = 1 / V.s;
+  c.lineWidth = 1.5 * u;
+  c.setLineDash([6 * u, 6 * u]);
+  for (const [col, off] of [['#000', 0], ['#fff', 6 * u]]) {
+    c.strokeStyle = col; c.lineDashOffset = off;
+    c.beginPath();
+    for (const L of loops) { c.moveTo(L[0], L[1]); for (let i = 2; i < L.length; i += 2) c.lineTo(L[i], L[i + 1]); c.closePath(); }
+    c.stroke();
+    if (selDraw) { tracePoly(c, selPolygon(selDraw), true); c.stroke(); }
+  }
+  c.setLineDash([]);
+}
+function syncSelPop() {
+  document.querySelectorAll('#selShape button').forEach(b => b.classList.toggle('on', b.dataset.v === prefs.selShape));
+  document.querySelectorAll('#selMode button').forEach(b => b.classList.toggle('on', b.dataset.v === prefs.selMode));
+}
+document.querySelectorAll('#selShape button').forEach(b => b.onclick = () => { prefs.selShape = b.dataset.v; syncSelPop(); savePrefs(); });
+document.querySelectorAll('#selMode button').forEach(b => b.onclick = () => { prefs.selMode = b.dataset.v; syncSelPop(); savePrefs(); });
+$('#sNone').onclick = $('#sNone2').onclick = () => { deselect(); closePopups(); };
+$('#sInv').onclick = $('#sInv2').onclick = invertSel;
+$('#sAll').onclick = selectAll;
+$('#sFill').onclick = fillSel;
+$('#sClear').onclick = clearSel;
+function testFilter() {
+  try {
+    const a = makeCanvas(2, 1), x = a.getContext('2d');
+    x.fillStyle = '#000'; x.fillRect(0, 0, 2, 1); x.fillStyle = 'rgb(128,128,128)'; x.fillRect(0, 0, 1, 1);
+    const b = makeCanvas(2, 1), y = b.getContext('2d', { willReadFrequently: true });
+    y.filter = 'url(#lumAlpha)'; y.drawImage(a, 0, 0);
+    const d = y.getImageData(0, 0, 2, 1).data;
+    return d[3] > 100 && d[3] < 160 && d[7] < 10;
+  } catch (e) { return false; }
+}
+
+// ---------------------------------------------------------------- filters: gaussian blur
+// Blurs the active layer (or, with a selection, only the selected part of it) with a live preview.
+// The layer is padded with copies of its edge pixels before blurring, so paint that reaches the
+// canvas edge stays solid there instead of fading out.
+let fx = null;                                   // { L, orig, radius, pending } while the blur panel is open
+let fxPad = null, fxOut = null;
+const blurRadius = v => Math.round(0.015 * v * v * 10) / 10;   // slider 0..100 → 0..150 px, finer at the low end
+function blurCanvas(src, r) {
+  const w = doc.w, h = doc.h, p = Math.ceil(r * 3) + 2;
+  if (!fxPad || fxPad.width < w + 2 * p || fxPad.height < h + 2 * p) fxPad = makeCanvas(w + 2 * p, h + 2 * p);
+  if (!fxOut) fxOut = makeCanvas(w, h);
+  const a = fxPad.getContext('2d');
+  a.clearRect(0, 0, fxPad.width, fxPad.height);
+  a.drawImage(src, p, p);
+  a.drawImage(src, 0, 0, 1, h, 0, p, p, h);           a.drawImage(src, w - 1, 0, 1, h, p + w, p, p, h);       // left, right
+  a.drawImage(src, 0, 0, w, 1, p, 0, w, p);           a.drawImage(src, 0, h - 1, w, 1, p, p + h, w, p);       // top, bottom
+  a.drawImage(src, 0, 0, 1, 1, 0, 0, p, p);           a.drawImage(src, w - 1, 0, 1, 1, p + w, 0, p, p);       // corners
+  a.drawImage(src, 0, h - 1, 1, 1, 0, p + h, p, p);   a.drawImage(src, w - 1, h - 1, 1, 1, p + w, p + h, p, p);
+  const o = fxOut.getContext('2d');
+  o.clearRect(0, 0, w, h);
+  o.filter = `blur(${r}px)`;
+  o.drawImage(fxPad, -p, -p);
+  o.filter = 'none';
+  return fxOut;
+}
+function fxRender() {
+  if (!fx) return;
+  fx.pending = false;
+  const { L, orig, radius: r } = fx, c = L.ctx;
+  c.save();
+  c.globalCompositeOperation = 'copy'; c.drawImage(orig, 0, 0);          // start from the untouched layer
+  if (r > 0) {
+    const blurred = blurCanvas(orig, r);
+    if (sel.active) {                      // original outside the selection + blurred inside, blended at soft edges
+      tctx.save();
+      tctx.globalCompositeOperation = 'copy'; tctx.drawImage(blurred, 0, 0);
+      tctx.globalCompositeOperation = 'destination-in'; tctx.drawImage(sel.c, 0, 0);
+      tctx.restore();
+      c.globalCompositeOperation = 'destination-out'; c.drawImage(sel.c, 0, 0);
+      c.globalCompositeOperation = 'lighter'; c.drawImage(tmp, 0, 0);
+    } else c.drawImage(blurred, 0, 0);
+  }
+  c.restore();
+  needRender = true;
+}
+function fxSync() {
+  const v = +$('#fxR').value; fx.radius = blurRadius(v);
+  $('#fxRV').textContent = fx.radius + ' px';
+  if (!fx.pending) { fx.pending = true; requestAnimationFrame(fxRender); }
+}
+function openBlur() {
+  if (fx || stroke) return;
+  closePopups();
+  document.querySelectorAll('.modal.open').forEach(m => m.classList.remove('open'));
+  const L = activeLayer();
+  if (!L.visible) return toast('This layer is hidden');
+  fx = { L, orig: crop(L.canvas, 0, 0, doc.w, doc.h), radius: 0, pending: false };
+  $('#fxWhat').textContent = '· ' + L.name + (sel.active ? ' · selection only' : '');
+  $('#fxR').value = prefs.blurV ?? 30;
+  document.body.classList.add('fx'); $('#fxBar').classList.add('open');
+  hover = null;
+  fxSync();
+}
+function closeFx() {
+  fx = null; fxPad = null; fxOut = null;              // let the big scratch canvases go
+  document.body.classList.remove('fx'); $('#fxBar').classList.remove('open');
+  needRender = true;
+}
+function fxCancel() {
+  if (!fx) return;
+  const { L, orig } = fx;
+  L.ctx.save(); L.ctx.globalCompositeOperation = 'copy'; L.ctx.drawImage(orig, 0, 0); L.ctx.restore();
+  L.saveDirty = true; scheduleSave();                // in case an autosave caught the preview
+  closeFx();
+}
+function fxApply() {
+  if (!fx) return;
+  if (fx.pending) fxRender();
+  const { L, orig, radius } = fx;
+  prefs.blurV = +$('#fxR').value; savePrefs();
+  closeFx();
+  if (radius <= 0) return;
+  const after = crop(L.canvas, 0, 0, doc.w, doc.h);
+  pushUndo({ px: doc.w * doc.h * 2, undo() { putPixels(L, orig, 0, 0); }, redo() { putPixels(L, after, 0, 0); } });
+  L.saveDirty = true; updateThumb(L); changed();
+}
+$('#fxR').oninput = fxSync;
+$('#fxCancel').onclick = fxCancel;
+$('#fxApply').onclick = fxApply;
+$('#fxBlurItem').onclick = openBlur;
+$('#bFx').onclick = () => {
+  const L = activeLayer();
+  $('#fxTarget').textContent = 'Applies to: ' + L.name + (sel.active ? ' (selection only)' : '') + (L.visible ? '' : ' (hidden)');
+  togglePop('#pFx');
+};
+
+// ---------------------------------------------------------------- transform (move / scale / rotate)
+// "Pixels": the selected part of the active layer (or all of it, with no selection) is lifted into a
+// floating canvas, shown transformed while you drag the handles, and drawn back on Apply. The selection
+// travels with it. "Selection outline": only the selection mask is transformed; no pixels change.
+// The transform is: float pixel → doc = T(cx,cy) · R(angle) · S(sx,sy) · T(-w/2,-h/2).
+let xf = null;
+function xfMatrix(x = xf) {
+  const c = Math.cos(x.angle), s = Math.sin(x.angle);
+  const a = c * x.sx, b = s * x.sx, cc = -s * x.sy, d = c * x.sy;
+  return [a, b, cc, d, x.cx - (a * x.w + cc * x.h) / 2, x.cy - (b * x.w + d * x.h) / 2];
+}
+function docToScreen(x, y) {
+  x *= V.f;
+  const c = Math.cos(V.r) * V.s, s = Math.sin(V.r) * V.s;
+  return { x: V.x + c * x - s * y, y: V.y + s * x + c * y };
+}
+function xfLocal(lx, ly, p = xf) {             // box-local offset (doc px, before rotation) → doc point
+  const c = Math.cos(p.angle), s = Math.sin(p.angle);
+  return { x: p.cx + c * lx - s * ly, y: p.cy + s * lx + c * ly };
+}
+function selBounds() {                         // bounding box of the selection mask, from its traced outline
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const L of sel.outline) for (let i = 0; i < L.length; i += 2) {
+    if (L[i] < x0) x0 = L[i]; if (L[i] > x1) x1 = L[i]; if (L[i + 1] < y0) y0 = L[i + 1]; if (L[i + 1] > y1) y1 = L[i + 1];
+  }
+  if (x1 < x0) return null;
+  const m = Math.ceil(Math.sqrt(doc.w * doc.h / 1.5e6)) + 1;   // the outline is traced on a grid: add its step
+  return clampBB({ x0: x0 - m, y0: y0 - m, x1: x1 + m, y1: y1 + m });
+}
+function contentBounds(src) {                  // tight box around the non-transparent pixels of a layer
+  const w = doc.w, h = doc.h, d = new Uint32Array(src.getContext('2d').getImageData(0, 0, w, h).data.buffer);
+  let x0 = w, y0 = h, x1 = -1, y1 = -1;
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    for (let x = 0; x < w; x++) if (d[row + x] >>> 24) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; y1 = y; }
+  }
+  return x1 < 0 ? null : { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+}
+function xfStart(mode = 'pixels') {
+  if (xf || fx || stroke) return;
+  closePopups();
+  const L = activeLayer();
+  if (mode === 'selection' && !sel.active) mode = 'pixels';
+  if (mode === 'pixels' && !L.visible) return toast('This layer is hidden');
+  const bb = sel.active ? selBounds() : contentBounds(L.canvas);
+  if (!bb) return toast(sel.active ? 'The selection is empty' : 'Nothing on this layer to transform');
+  const x = { mode, L, bx: bb.x, by: bb.y, w: bb.w, h: bb.h, cx: bb.x + bb.w / 2, cy: bb.y + bb.h / 2, angle: 0, sx: 1, sy: 1, drag: null };
+  if (mode === 'pixels') {
+    x.orig = crop(L.canvas, 0, 0, doc.w, doc.h);
+    x.float = makeCanvas(bb.w, bb.h);
+    const f = x.float.getContext('2d');
+    f.drawImage(L.canvas, bb.x, bb.y, bb.w, bb.h, 0, 0, bb.w, bb.h);
+    if (sel.active) {
+      f.globalCompositeOperation = 'destination-in'; f.drawImage(sel.c, bb.x, bb.y, bb.w, bb.h, 0, 0, bb.w, bb.h);
+      L.ctx.save(); L.ctx.globalCompositeOperation = 'destination-out'; L.ctx.drawImage(sel.c, 0, 0); L.ctx.restore();
+    } else L.ctx.clearRect(bb.x, bb.y, bb.w, bb.h);
+  }
+  if (sel.active) { x.mask = makeCanvas(bb.w, bb.h); x.mask.getContext('2d').drawImage(sel.c, bb.x, bb.y, bb.w, bb.h, 0, 0, bb.w, bb.h); }
+  xf = x;
+  $('#xfWhat').textContent = '· ' + L.name + (sel.active ? ' · selection' : '');
+  $('#xfMode').style.display = sel.active ? '' : 'none';
+  document.querySelectorAll('#xfMode button').forEach(b => b.classList.toggle('on', b.dataset.m === mode));
+  $('#xfUniform').classList.toggle('on', prefs.xfUniform !== false);
+  document.body.classList.add('xf'); $('#xfBar').classList.add('open'); $('#bXf').classList.add('on');
+  hover = null; xfReadout(); needRender = true;
+}
+function xfReadout() {
+  const deg = Math.round(((xf.angle * 180 / Math.PI) % 360 + 540) % 360 - 180);
+  $('#xfRead').textContent = `${Math.round(Math.abs(xf.sx) * 100)}% × ${Math.round(Math.abs(xf.sy) * 100)}% · ${deg}°`;
+}
+function xfIsIdentity(x) { return x.angle === 0 && x.sx === 1 && x.sy === 1 && x.cx === x.bx + x.w / 2 && x.cy === x.by + x.h / 2; }
+function closeXf() {
+  xf = null;
+  document.body.classList.remove('xf'); $('#xfBar').classList.remove('open'); $('#bXf').classList.remove('on');
+  needRender = true;
+}
+function xfCancel() {
+  if (!xf) return;
+  const x = xf;
+  if (x.mode === 'pixels') { x.L.ctx.save(); x.L.ctx.globalCompositeOperation = 'copy'; x.L.ctx.drawImage(x.orig, 0, 0); x.L.ctx.restore(); }
+  closeXf();
+}
+function xfApply() {
+  if (!xf) return;
+  const x = xf;
+  if (xfIsIdentity(x)) return xfCancel();
+  const M = xfMatrix(x);
+  if (x.mode === 'pixels') {
+    const L = x.L, c = L.ctx;
+    c.save(); c.setTransform(...M); c.imageSmoothingEnabled = true; c.imageSmoothingQuality = 'high'; c.drawImage(x.float, 0, 0); c.restore();
+    const before = x.orig, after = crop(L.canvas, 0, 0, doc.w, doc.h);
+    pushUndo({ px: doc.w * doc.h * 2, undo() { putPixels(L, before, 0, 0); }, redo() { putPixels(L, after, 0, 0); } });
+    L.saveDirty = true; updateThumb(L);
+  }
+  if (x.mask) {                                // the selection follows (or, in outline mode, is the thing moved)
+    const s = sel.ctx;
+    s.save(); s.setTransform(1, 0, 0, 1, 0, 0); s.clearRect(0, 0, doc.w, doc.h);
+    s.setTransform(...M); s.imageSmoothingEnabled = true; s.drawImage(x.mask, 0, 0); s.restore();
+    syncSelBar();
+  }
+  closeXf(); changed();
+}
+function xfRestart(mode) {                     // switch between Pixels and Selection outline
+  if (!xf || xf.mode === mode) return;
+  xfCancel(); xfStart(mode);
+}
+// --- handles
+function xfHandles() {                         // screen positions of the box corners, edge middles and rotate knob
+  const hw = xf.sx * xf.w / 2, hh = xf.sy * xf.h / 2, S = p => docToScreen(p.x, p.y);
+  const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([u, v]) => ({ u, v, ...S(xfLocal(u * hw, v * hh)) }));
+  const edges = [[0, -1], [1, 0], [0, 1], [-1, 0]].map(([u, v]) => ({ u, v, ...S(xfLocal(u * hw, v * hh)) }));
+  const c = S(xfLocal(0, 0)), top = edges[0];
+  let dx = top.x - c.x, dy = top.y - c.y, l = Math.hypot(dx, dy);
+  if (l < 1) { dx = 0; dy = -1; l = 1; }
+  const rot = { x: top.x + dx / l * 36, y: top.y + dy / l * 36 };
+  return { corners, edges, rot, c };
+}
+function xfHit(x, y) {
+  const H = xfHandles(), near = (p, r) => Math.hypot(p.x - x, p.y - y) < r;
+  if (near(H.rot, 22)) return { type: 'rot' };
+  for (const p of H.corners) if (near(p, 22)) return { type: 'scale', u: p.u, v: p.v };
+  for (const p of H.edges) if (near(p, 18)) return { type: 'scale', u: p.u, v: p.v };
+  let inside = true, sign = 0;                 // inside the (convex) box → move
+  for (let i = 0; i < 4; i++) {
+    const a = H.corners[i], b = H.corners[(i + 1) % 4], cr = (b.x - a.x) * (y - a.y) - (b.y - a.y) * (x - a.x);
+    if (cr !== 0) { if (!sign) sign = Math.sign(cr); else if (Math.sign(cr) !== sign) inside = false; }
+  }
+  return inside ? { type: 'move' } : null;
+}
+function xfDown(e) {
+  const hit = xfHit(e.clientX, e.clientY);
+  if (!hit) return false;
+  const P = toDoc(e.clientX, e.clientY);
+  xf.drag = { ...hit, id: e.pointerId, P0: P, p0: { cx: xf.cx, cy: xf.cy, angle: xf.angle, sx: xf.sx, sy: xf.sy },
+              a0: Math.atan2(P.y - xf.cy, P.x - xf.cx) };
+  if (hit.type === 'scale') {                  // where the handle was grabbed, relative to the box centre (box axes)
+    const l = xfToBoxAxes(P, xf.drag.p0), hx = hit.u * xf.sx * xf.w / 2, hy = hit.v * xf.sy * xf.h / 2;
+    xf.drag.l0 = { x: Math.abs(l.x) >= 1 ? l.x : hx || 1, y: Math.abs(l.y) >= 1 ? l.y : hy || 1 };
+  }
+  return true;
+}
+function xfToBoxAxes(P, p) {                    // doc point → offset from the box centre along the box's own axes
+  const c = Math.cos(p.angle), s = Math.sin(p.angle), dx = P.x - p.cx, dy = P.y - p.cy;
+  return { x: c * dx + s * dy, y: -s * dx + c * dy };
+}
+function xfMove(e) {
+  const D = xf.drag, p0 = D.p0, P = toDoc(e.clientX, e.clientY);
+  if (D.type === 'move') { xf.cx = p0.cx + P.x - D.P0.x; xf.cy = p0.cy + P.y - D.P0.y; }
+  else if (D.type === 'rot') {
+    let a = p0.angle + Math.atan2(P.y - p0.cy, P.x - p0.cx) - D.a0;
+    const step = Math.PI / 4, near = Math.round(a / step) * step;
+    if (Math.abs(a - near) < 0.04) a = near;     // snaps to 0°, 45°, 90°…
+    xf.angle = a;
+  } else {
+    // Scaling happens around the centre of the box: the centre stays put and the box grows or shrinks
+    // evenly on both sides. The factor is how far the pointer now is from the centre compared with where
+    // the handle was grabbed, so grabbing a handle slightly off-centre doesn't make the box jump.
+    const { u, v, l0 } = D, w = xf.w, h = xf.h, l = xfToBoxAxes(P, p0);
+    let rx = u ? l.x / l0.x : 1, ry = v ? l.y / l0.y : 1;
+    if (u && v && prefs.xfUniform !== false)     // corner + uniform: keep proportions
+      rx = ry = (l.x * l0.x + l.y * l0.y) / (l0.x * l0.x + l0.y * l0.y);
+    rx = Math.max(rx, 2 / (w * Math.abs(p0.sx))); ry = Math.max(ry, 2 / (h * Math.abs(p0.sy)));   // never smaller than 2 px
+    xf.sx = p0.sx * rx; xf.sy = p0.sy * ry;
+    xf.cx = p0.cx; xf.cy = p0.cy;
+  }
+  xfReadout(); needRender = true;
+}
+function xfMapLoop(L) {                        // a selection outline loop, moved by the current transform
+  const [a, b, c, d, e, f] = xfMatrix(), out = new Array(L.length);
+  for (let i = 0; i < L.length; i += 2) { const x = L[i] - xf.bx, y = L[i + 1] - xf.by; out[i] = a * x + c * y + e; out[i + 1] = b * x + d * y + f; }
+  return out;
+}
+function drawXfHandles(c) {                    // screen space
+  const H = xfHandles();
+  c.lineWidth = 1.5; c.strokeStyle = '#4fa3ff';
+  c.beginPath(); H.corners.forEach((p, i) => i ? c.lineTo(p.x, p.y) : c.moveTo(p.x, p.y)); c.closePath(); c.stroke();
+  c.beginPath(); c.moveTo(H.edges[0].x, H.edges[0].y); c.lineTo(H.rot.x, H.rot.y); c.stroke();
+  c.fillStyle = '#fff'; c.strokeStyle = '#1f6fd1'; c.lineWidth = 2;
+  for (const p of H.corners) { c.beginPath(); c.rect(p.x - 7, p.y - 7, 14, 14); c.fill(); c.stroke(); }
+  for (const p of H.edges) { c.beginPath(); c.arc(p.x, p.y, 6, 0, TAU); c.fill(); c.stroke(); }
+  c.fillStyle = '#4fa3ff'; c.beginPath(); c.arc(H.rot.x, H.rot.y, 9, 0, TAU); c.fill(); c.stroke();
+  c.strokeStyle = '#fff'; c.lineWidth = 1.5; c.beginPath(); c.arc(H.rot.x, H.rot.y, 4.5, -2.4, 1.6); c.stroke();   // a little rotate arrow
+}
+$('#bXf').onclick = () => xfStart('pixels');
+$('#xfApply').onclick = xfApply;
+$('#xfCancel').onclick = xfCancel;
+document.querySelectorAll('#xfMode button').forEach(b => b.onclick = () => xfRestart(b.dataset.m));
+$('#xfFlipH').onclick = () => { xf.sx = -xf.sx; xfReadout(); needRender = true; };
+$('#xfFlipV').onclick = () => { xf.sy = -xf.sy; xfReadout(); needRender = true; };
+$('#xfRot90').onclick = () => { xf.angle += Math.PI / 2; xfReadout(); needRender = true; };
+$('#xfReset').onclick = () => { Object.assign(xf, { angle: 0, sx: 1, sy: 1, cx: xf.bx + xf.w / 2, cy: xf.by + xf.h / 2 }); xfReadout(); needRender = true; };
+$('#xfUniform').onclick = () => { prefs.xfUniform = prefs.xfUniform === false; $('#xfUniform').classList.toggle('on', prefs.xfUniform); savePrefs(); };
+
+// ---------------------------------------------------------------- rendering
+let hover = null;
+function render() {
+  needRender = false;
+  const c = vctx;
+  c.setTransform(1, 0, 0, 1, 0, 0);
+  c.globalAlpha = 1;
+  c.fillStyle = '#26272b'; c.fillRect(0, 0, view.width, view.height);
+  const k = V.s * dpr, cs = Math.cos(V.r) * k, sn = Math.sin(V.r) * k;
+  c.setTransform(cs * V.f, sn * V.f, -sn, cs, V.x * dpr, V.y * dpr);
+  c.shadowColor = 'rgba(0,0,0,.5)'; c.shadowBlur = 18; c.fillStyle = doc.bg; c.fillRect(0, 0, doc.w, doc.h);
+  c.shadowBlur = 0; c.shadowColor = 'transparent';
+  c.imageSmoothingEnabled = k < 2.5;
+  c.imageSmoothingQuality = 'medium';
+  for (const L of doc.layers) if (L.visible && L.opacity > 0 && L.canvas.width) {
+    c.globalAlpha = L.opacity; c.drawImage(L.canvas, 0, 0);
+    if (xf && xf.mode === 'pixels' && xf.L === L) {          // the lifted pixels, transformed, in their layer's place
+      c.save(); c.transform(...xfMatrix()); c.imageSmoothingEnabled = true; c.drawImage(xf.float, 0, 0); c.restore();
+    }
+  }
+  c.globalAlpha = 1;
+  drawSelectionOutline(c);
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (xf) drawXfHandles(c);
+  if (hover && !stroke && !xf && (tool === 'brush' || tool === 'eraser' || hover.eraser)) {
+    const t = hover.eraser ? 'eraser' : tool === 'brush' ? brushKind : tool;
+    const r = Math.max(1.5, tools[t].size / 2 * V.s);
+    c.lineWidth = 1;
+    c.strokeStyle = 'rgba(0,0,0,.7)'; c.beginPath(); c.arc(hover.x, hover.y, r + 0.5, 0, TAU); c.stroke();
+    c.strokeStyle = 'rgba(255,255,255,.85)'; c.beginPath(); c.arc(hover.x, hover.y, r - 0.5, 0, TAU); c.stroke();
+  }
+  if (pickRing) {
+    const { x, y } = pickRing, R = 46;
+    c.lineWidth = 14; c.strokeStyle = colorHex(); c.beginPath(); c.arc(x, y, R, 0, TAU); c.stroke();
+    c.lineWidth = 1.5; c.strokeStyle = '#000'; c.beginPath(); c.arc(x, y, R + 7.5, 0, TAU); c.stroke();
+    c.beginPath(); c.arc(x, y, R - 7.5, 0, TAU); c.stroke();
+  }
+}
+function frame() {
+  requestAnimationFrame(frame);              // first, so one bad frame can never stop the loop
+  if (fadeRects && !stroke && !selDraw) uiFadeEnd();   // a drag ended some other way (cancelled, two-finger pinch…)
+  try {
+    if (stroke) flushStroke();
+    if (needRender) render();
+  } catch (e) { console.error(e); needRender = false; }
+}
+
+// ---------------------------------------------------------------- input: pen & mouse
+let penDown = false, lastPen = -1e9, spaceHeld = false;
+let panPtr = null, pickPtr = null;
+// Panels that float over the canvas (menu, brush settings, filters, colour, selection options, layers):
+// only one is open at a time, and a tap on the canvas closes it without painting.
+function anyPopupOpen() { return document.querySelector('.pop.open') || $('#pLayers').classList.contains('open'); }
+function closePopups() {
+  document.querySelectorAll('.pop.open').forEach(p => p.classList.remove('open'));
+  $('#pLayers').classList.remove('open'); $('#bLayers').classList.remove('on');
+}
+
+view.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  if (anyPopupOpen()) { closePopups(); return; }
+  if (e.pointerType === 'touch') return touchDown(e);
+  if (stroke || panPtr || pickPtr || selDraw || xf?.drag) return;
+  if (fx && !(e.pointerType === 'mouse' && (e.button === 1 || spaceHeld))) return;   // blur preview: no painting
+  if (e.pointerType === 'pen') { penDown = true; lastPen = now(); dropTouches(); lastPenPressure = 0; }
+  capture(view, e);
+  if (xf && !(e.pointerType === 'mouse' && (e.button === 1 || spaceHeld))) { xfDown(e); return; }   // transform: handles only
+  if (e.pointerType === 'mouse' && (e.button === 1 || spaceHeld)) { if (prefs.lockView) return; panPtr = { id: e.pointerId, x: e.clientX, y: e.clientY }; return; }
+  let t = tool;
+  if (e.button === 5 || (e.buttons & 32) || e.button === 2 || (e.buttons & 2)) t = 'eraser';   // pen eraser tip / side button / right mouse
+  else if (e.pointerType === 'mouse' && e.altKey) t = 'picker';
+  hover = null;
+  if (t === 'picker') { pickPtr = e.pointerId; sampleAt(e.clientX, e.clientY); return; }
+  if (t === 'select') { startSel(e); return; }
+  beginStroke(e, t);
+});
+view.addEventListener('pointermove', e => {
+  if (e.pointerType === 'touch') return touchMove(e);
+  if (e.pointerType === 'pen') lastPen = now();
+  if (stroke && stroke.id === e.pointerId) { strokeInput(e); return; }
+  if (selDraw && selDraw.id === e.pointerId) { moveSel(e); return; }
+  if (panPtr && panPtr.id === e.pointerId) { V.x += e.clientX - panPtr.x; V.y += e.clientY - panPtr.y; panPtr.x = e.clientX; panPtr.y = e.clientY; needRender = true; return; }
+  if (pickPtr === e.pointerId) { sampleAt(e.clientX, e.clientY); return; }
+  if (xf?.drag && xf.drag.id === e.pointerId) { xfMove(e); return; }
+  if (fx || xf) return;
+  hover = { x: e.clientX, y: e.clientY, eraser: !!(e.buttons & 34) || e.button === 5 }; needRender = true;
+});
+function penUp(e) {
+  if (e.pointerType === 'touch') return touchUp(e);
+  if (e.pointerType === 'pen') { penDown = false; lastPen = now(); }
+  if (xf?.drag && xf.drag.id === e.pointerId) xf.drag = null;
+  if (stroke && stroke.id === e.pointerId) endStroke();
+  if (selDraw && selDraw.id === e.pointerId) endSel(e.type === 'pointercancel');
+  if (panPtr && panPtr.id === e.pointerId) panPtr = null;
+  if (pickPtr === e.pointerId) { pickPtr = null; pickRing = null; needRender = true; if (tool === 'picker') setTool(prevTool); }
+}
+view.addEventListener('pointerup', penUp);
+view.addEventListener('pointercancel', penUp);
+view.addEventListener('pointerleave', e => { if (e.pointerType !== 'touch') { hover = null; needRender = true; } });
+view.addEventListener('contextmenu', e => e.preventDefault());
+view.addEventListener('wheel', e => {
+  e.preventDefault();
+  zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)));
+}, { passive: false });
+
+// ---------------------------------------------------------------- input: touch gestures
+const touches = new Map();
+let gest = null, tap = null, fingerMode = null, holdTimer = 0;
+function dropTouches() {
+  if (fingerMode === 'stroke') cancelStroke();
+  if (fingerMode === 'sel') selDraw = null;
+  if (fingerMode === 'pick') { pickRing = null; needRender = true; }
+  touches.clear(); gest = null; tap = null; fingerMode = null; clearTimeout(holdTimer);
+}
+function startGesture() {
+  const [a, b] = [...touches.values()];
+  const cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
+  gest = { s: V.s, r: V.r, d: Math.hypot(b.x - a.x, b.y - a.y) || 1, a: Math.atan2(b.y - a.y, b.x - a.x), anchor: toDoc(cx, cy) };
+}
+function updateGesture() {
+  if (prefs.lockView) return;
+  const [a, b] = [...touches.values()];
+  const cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
+  V.s = clamp(gest.s * Math.hypot(b.x - a.x, b.y - a.y) / gest.d, 0.03, 64);
+  let r = prefs.rotate ? gest.r + Math.atan2(b.y - a.y, b.x - a.x) - gest.a : gest.r;
+  r = Math.atan2(Math.sin(r), Math.cos(r));
+  if (Math.abs(r) < 0.07) r = 0;
+  V.r = r;
+  placeAnchor(gest.anchor.x, gest.anchor.y, cx, cy);
+  needRender = true;
+}
+function touchDown(e) {
+  if (penDown || stroke && fingerMode !== 'stroke' || now() - lastPen < 400) return;   // palm rejection
+  capture(view, e);
+  touches.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY });
+  if (touches.size === 1) {
+    tap = { t: now(), n: 1, moved: false };
+    if (xf) fingerMode = xfDown(e) ? 'xf' : 'wait';   // transform: handles/box, or pan outside it
+    else if (fx) fingerMode = 'wait';      // blur preview open: one finger only pans
+    else if (prefs.fingerDraw && tool === 'select') { startSel(e); fingerMode = 'sel'; }
+    else if (prefs.fingerDraw && tool !== 'picker') { if (beginStroke(e, tool)) fingerMode = 'stroke'; }
+    else if (tool === 'picker') { fingerMode = 'pick'; sampleAt(e.clientX, e.clientY); }
+    else {
+      fingerMode = 'wait';
+      holdTimer = setTimeout(() => { if (fingerMode === 'wait') { fingerMode = 'pick'; const p = [...touches.values()][0]; sampleAt(p.x, p.y); } }, 450);
+    }
+  } else {
+    if (fingerMode === 'stroke') cancelStroke();
+    if (fingerMode === 'sel') { selDraw = null; needRender = true; }
+    if (fingerMode === 'pick') { pickRing = null; needRender = true; }
+    if (fingerMode === 'xf' && xf?.drag) { Object.assign(xf, xf.drag.p0); xf.drag = null; xfReadout(); needRender = true; }   // second finger: view gesture
+    clearTimeout(holdTimer); fingerMode = null;
+    if (tap) tap.n = Math.max(tap.n, touches.size);
+    startGesture();
+  }
+}
+function touchMove(e) {
+  const p = touches.get(e.pointerId); if (!p) return;
+  const lx = p.x, ly = p.y;
+  p.x = e.clientX; p.y = e.clientY;
+  if (tap && Math.hypot(p.x - p.sx, p.y - p.sy) > 12) tap.moved = true;
+  if (gest && touches.size >= 2) return updateGesture();
+  if (fingerMode === 'stroke' && stroke) return strokeInput(e);
+  if (fingerMode === 'sel' && selDraw) return moveSel(e);
+  if (fingerMode === 'xf' && xf?.drag) return xfMove(e);
+  if (fingerMode === 'pick') return sampleAt(p.x, p.y);
+  if (fingerMode === 'wait' && tap && tap.moved) { clearTimeout(holdTimer); fingerMode = 'pan'; }
+  if (fingerMode === 'pan' && !prefs.lockView) { V.x += p.x - lx; V.y += p.y - ly; needRender = true; }
+}
+function touchUp(e) {
+  if (!touches.has(e.pointerId)) return;
+  touches.delete(e.pointerId);
+  if (touches.size === 1 && gest) { gest = null; fingerMode = null; return; }   // lifting one finger of a pinch: stop, don't jump
+  if (touches.size) { if (gest) startGesture(); return; }
+  clearTimeout(holdTimer);
+  if (fingerMode === 'stroke') { if (e.type === 'pointercancel') cancelStroke(); else endStroke(); }
+  if (fingerMode === 'sel' && selDraw) endSel(e.type === 'pointercancel');
+  if (fingerMode === 'xf' && xf) xf.drag = null;
+  if (fingerMode === 'pick') { pickRing = null; needRender = true; if (tool === 'picker') setTool(prevTool); }
+  if (tap && e.type === 'pointerup' && !tap.moved && now() - tap.t < 350) { if (tap.n === 2) undo(); else if (tap.n === 3) redo(); }
+  gest = null; tap = null; fingerMode = null;
+}
+
+// ---------------------------------------------------------------- keyboard
+addEventListener('keydown', e => {
+  if (fx || xf) {                          // blur / transform open: only Enter / Escape (and Space to pan)
+    if (e.key === 'Escape') fx ? fxCancel() : xfCancel(); else if (e.key === 'Enter') { e.preventDefault(); fx ? fxApply() : xfApply(); }
+    else if (e.key === ' ' && e.target.tagName !== 'INPUT') { spaceHeld = true; e.preventDefault(); }
+    return;
+  }
+  if (e.target.tagName === 'INPUT') return;
+  const k = e.key.toLowerCase();
+  if ((e.ctrlKey || e.metaKey) && k === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
+  if ((e.ctrlKey || e.metaKey) && k === 'y') { e.preventDefault(); redo(); return; }
+  if ((e.ctrlKey || e.metaKey) && k === 'd') { e.preventDefault(); deselect(); return; }
+  if ((e.ctrlKey || e.metaKey) && k === 'a') { e.preventDefault(); selectAll(); return; }
+  if ((e.ctrlKey || e.metaKey) && e.shiftKey && k === 'i') { e.preventDefault(); invertSel(); return; }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (k === ' ') { spaceHeld = true; e.preventDefault(); }
+  else if (k === 'b') { setBrushKind('brush'); setTool('brush'); }
+  else if (k === 'p') { setBrushKind('pencil'); setTool('brush'); }
+  else if (k === 'e') setTool('eraser');
+  else if (k === 'i') setTool('picker');
+  else if (k === 's') setTool('select');
+  else if (k === 't') xfStart('pixels');
+  else if (k === 'm') setFlip();
+  else if (k === 'k') setLock(!prefs.lockView);
+  else if (k === 'l') toggleLayers();
+  else if (k === '0') fitView();
+  else if (k === '[' || k === ']') { const t = sliderTool(); t.size = clamp(Math.round(t.size * (k === ']' ? 1.15 : 1 / 1.15)), 1, 500); syncSliders(); needRender = true; }
+});
+addEventListener('keyup', e => { if (e.key === ' ') spaceHeld = false; });
+
+// ---------------------------------------------------------------- tools & sliders
+function setTool(t) {
+  if (t === 'picker' && tool !== 'picker') prevTool = tool;
+  if (t === 'brush') paintTool = brushKind;
+  else if (t === 'eraser') paintTool = 'eraser';
+  tool = t;
+  document.querySelectorAll('.tool').forEach(b => b.classList.toggle('on', b.dataset.tool === t));
+  syncSliders(); syncBrushPanel(); needRender = true;
+}
+const BRUSH_ICONS = {
+  brush: '<svg viewBox="0 0 24 24"><path d="M4 20.5c3.2 0 5-1.8 5-4.2a2.6 2.6 0 0 0-5.2 0c0 1.6.6 2.5.2 4.2z"/><path d="M8.4 14L19.6 2.8a1.5 1.5 0 0 1 2.1 2.1L10.5 16.1"/></svg>',
+  pencil: '<svg viewBox="0 0 24 24"><path d="M16.2 3.8l4 4L8.6 19.4l-5.1 1.1 1.1-5.1L16.2 3.8z"/><path d="M13.6 6.4l4 4"/><path d="M4.6 15.4l4 4"/><path d="M3.5 20.5l.55-2.6 2.05 2.05z" fill="currentColor"/></svg>',
+};
+// The brush tool paints with a round brush or the pencil; each keeps its own size, opacity and settings.
+function setBrushKind(k) {
+  brushKind = k;
+  if (paintTool !== 'eraser') paintTool = k;
+  const b = document.querySelector('.tool[data-tool="brush"]');
+  b.innerHTML = BRUSH_ICONS[k]; b.title = (k === 'pencil' ? 'Pencil (P)' : 'Brush (B)') + ' - tap again for settings';
+  spriteKey = '';
+  syncSliders(); syncBrushPanel(); savePrefs(); needRender = true;
+}
+document.querySelectorAll('#brushKind button').forEach(b => b.onclick = () => { setBrushKind(b.dataset.k); if (tool !== 'brush') setTool('brush'); });
+document.querySelectorAll('.tool').forEach(b => b.onclick = () => {
+  if (b.dataset.tool === tool && tool !== 'picker') { togglePop(tool === 'select' ? '#pSel' : '#pBrush'); return; }
+  setTool(b.dataset.tool);
+});
+const sliderTool = () => tools[paintTool];
+function makeVSlider(el, get, set, label) {
+  const fill = el.querySelector('.fill'), val = el.querySelector('.val');
+  el.sync = () => { fill.style.height = (get() * 100) + '%'; val.textContent = label(); };
+  const move = e => { const r = el.getBoundingClientRect(); set(clamp(1 - (e.clientY - r.top) / r.height, 0, 1)); el.sync(); needRender = true; queueSample(); };
+  el.addEventListener('pointerdown', e => { e.preventDefault(); capture(el, e); el.classList.add('drag'); move(e); });
+  el.addEventListener('pointermove', e => { if (el.hasPointerCapture(e.pointerId)) move(e); });
+  const up = e => { el.classList.remove('drag'); savePrefs(); };
+  el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+}
+const MAXSIZE = 500;
+makeVSlider($('#vsSize'), () => Math.log(sliderTool().size) / Math.log(MAXSIZE),
+  v => sliderTool().size = Math.max(1, Math.round(Math.pow(MAXSIZE, v) * 10) / 10), () => sliderTool().size + ' px');
+makeVSlider($('#vsOpac'), () => sliderTool().opacity, v => sliderTool().opacity = Math.max(0.01, Math.round(v * 100) / 100),
+  () => Math.round(sliderTool().opacity * 100) + '%');
+function syncSliders() { $('#vsSize').sync(); $('#vsOpac').sync(); }
+
+function bindRange(id, out, get, set, fmt) {
+  const r = $(id), o = $(out);
+  r.sync = () => { r.value = get(); o.textContent = fmt(r.value); };
+  r.oninput = () => { set(+r.value); o.textContent = fmt(r.value); spriteKey = ''; savePrefs(); queueSample(); };
+  return r;
+}
+const pct = v => v + '%';
+const ranges = [
+  bindRange('#rHard', '#oHard', () => Math.round(sliderTool().hardness * 100), v => sliderTool().hardness = v / 100, pct),
+  bindRange('#rFlow', '#oFlow', () => Math.round(sliderTool().flow * 100), v => sliderTool().flow = v / 100, pct),
+  bindRange('#rSpace', '#oSpace', () => Math.round(sliderTool().spacing * 100), v => sliderTool().spacing = v / 100, pct),
+  bindRange('#rGrain', '#oGrain', () => Math.round(tools.pencil.grain * 100), v => tools.pencil.grain = v / 100, pct),
+  bindRange('#rGScale', '#oGScale', () => Math.round(tools.pencil.grainScale * 100), v => tools.pencil.grainScale = v / 100, pct),
+  bindRange('#rDensity', '#oDensity', () => Math.round((tools.pencil.density ?? 1) * 100), v => tools.pencil.density = v / 100, pct),
+  bindRange('#rSmooth', '#oSmooth', () => Math.round(prefs.smoothing * 100), v => prefs.smoothing = v / 100, pct),
+  bindRange('#rPMin', '#oPMin', () => Math.round(prefs.pMin * 100), v => prefs.pMin = v / 100, pct),
+];
+
+// ---------------------------------------------------------------- pressure curve editor
+const curveEl = $('#curve'), cvx = curveEl.getContext('2d');
+const CURVE_PRESETS = {
+  linear: [[0, 0], [1, 1]],
+  soft:   [[0, 0], [0.3, 0.55], [1, 1]],
+  firm:   [[0, 0], [0.6, 0.3], [1, 1]],
+  s:      [[0, 0], [0.3, 0.12], [0.7, 0.88], [1, 1]],
+};
+const CPAD = 14;                                 // px around the plot so end points can be grabbed
+let curveDrag = null, curveSize = 0;
+function curveGeom() {
+  const w = curveEl.clientWidth, d = window.devicePixelRatio || 1;
+  if (w && curveSize !== w * d) { curveSize = w * d; curveEl.width = curveEl.height = Math.round(w * d); }
+  const S = w - CPAD * 2;
+  return { w, d, S, X: x => CPAD + x * S, Y: y => CPAD + (1 - y) * S };
+}
+function drawCurve() {
+  const { w, d, S, X, Y } = curveGeom();
+  if (!w) return;
+  const c = cvx;
+  c.setTransform(d, 0, 0, d, 0, 0); c.clearRect(0, 0, w, w);
+  c.strokeStyle = '#34363d'; c.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) { const v = CPAD + i * S / 4; c.beginPath(); c.moveTo(CPAD, v); c.lineTo(CPAD + S, v); c.moveTo(v, CPAD); c.lineTo(v, CPAD + S); c.stroke(); }
+  c.setLineDash([4, 4]); c.strokeStyle = '#555963'; c.beginPath(); c.moveTo(X(0), Y(0)); c.lineTo(X(1), Y(1)); c.stroke(); c.setLineDash([]);
+  if (!curveLUT) bakeCurve();
+  c.strokeStyle = '#4fa3ff'; c.lineWidth = 2.5; c.beginPath();
+  for (let i = 0; i <= 128; i++) { const x = i / 128; i ? c.lineTo(X(x), Y(pressureCurve(x))) : c.moveTo(X(x), Y(pressureCurve(x))); }
+  c.stroke();
+  prefs.curve.forEach((p, i) => {
+    const out = curveDrag && curveDrag.i === i && curveDrag.out;
+    c.fillStyle = out ? '#ff5f5f' : '#fff'; c.strokeStyle = '#000'; c.lineWidth = 1.5;
+    c.beginPath(); c.arc(X(p[0]), Y(p[1]), 7, 0, TAU); c.fill(); c.stroke();
+  });
+  if (lastPenPressure > 0) {                     // hardest press of your last pen stroke, on top of everything
+    const p = lastPenPressure, x = X(p), y = Y(pressureCurve(p));
+    c.strokeStyle = 'rgba(255,95,162,.6)'; c.lineWidth = 1; c.setLineDash([3, 3]);
+    c.beginPath(); c.moveTo(x, Y(0)); c.lineTo(x, y); c.lineTo(X(0), y); c.stroke(); c.setLineDash([]);
+    c.fillStyle = '#ff5fa2'; c.strokeStyle = '#000'; c.lineWidth = 1.5;
+    c.beginPath(); c.arc(x, y, 5.5, 0, TAU); c.fill(); c.stroke();
+    c.font = '11px system-ui'; c.fillText('last stroke: ' + Math.round(p * 100) + '%', CPAD + 4, CPAD + 12);
+  }
+  c.fillStyle = '#9a9ea8'; c.font = '11px system-ui'; c.fillText('pen pressure →', w - CPAD - 84, w - 2);
+}
+function curveChanged() { bakeCurve(); drawCurve(); queueSample(); clearTimeout(prefsT); prefsT = setTimeout(savePrefs, 400); }
+function curvePos(e) {
+  const r = curveEl.getBoundingClientRect(), S = r.width - CPAD * 2;
+  const rx = (e.clientX - r.left - CPAD) / S, ry = 1 - (e.clientY - r.top - CPAD) / S;
+  return { rx, ry, x: clamp(rx, 0, 1), y: clamp(ry, 0, 1), S };
+}
+curveEl.addEventListener('pointerdown', e => {
+  e.preventDefault(); capture(curveEl, e);
+  const P = prefs.curve, q = curvePos(e);
+  let best = -1, bd = 22 / q.S;                  // grab radius ≈ 22 px
+  P.forEach((p, i) => { const dd = Math.hypot(p[0] - q.x, p[1] - q.y); if (dd < bd) { bd = dd; best = i; } });
+  if (best < 0) {
+    if (P.length >= 10 || q.x <= 0.01 || q.x >= 0.99) return;
+    best = P.findIndex(p => p[0] > q.x);
+    P.splice(best, 0, [q.x, q.y]);
+    curveChanged();
+  }
+  curveDrag = { id: e.pointerId, i: best, out: false };
+});
+curveEl.addEventListener('pointermove', e => {
+  if (!curveDrag || curveDrag.id !== e.pointerId) return;
+  const P = prefs.curve, i = curveDrag.i, q = curvePos(e), end = i === 0 || i === P.length - 1;
+  curveDrag.out = !end && (q.rx < -0.12 || q.rx > 1.12 || q.ry < -0.12 || q.ry > 1.12);
+  if (!end) P[i][0] = clamp(q.x, P[i - 1][0] + 0.02, P[i + 1][0] - 0.02);
+  P[i][1] = q.y;
+  curveChanged();
+});
+const curveUp = e => {
+  if (!curveDrag || curveDrag.id !== e.pointerId) return;
+  if (curveDrag.out) prefs.curve.splice(curveDrag.i, 1);
+  curveDrag = null; curveChanged();
+};
+curveEl.addEventListener('pointerup', curveUp);
+curveEl.addEventListener('pointercancel', curveUp);
+document.querySelectorAll('#curvePresets button').forEach(b => b.onclick = () => {
+  prefs.curve = CURVE_PRESETS[b.dataset.c].map(p => p.slice()); curveChanged();
+});
+$('#cPSize').onchange = e => { prefs.pSize = e.target.checked; savePrefs(); queueSample(); };
+$('#cPFlow').onchange = e => { prefs.pFlow = e.target.checked; savePrefs(); queueSample(); };
+$('#cPOp').onchange = e => { prefs.pOp = e.target.checked; savePrefs(); queueSample(); };
+function syncBrushPanel() {
+  $('#pbTitle').textContent = { brush: 'Round brush', pencil: 'Pencil', eraser: 'Eraser' }[paintTool] + ' tip';
+  $('#brushKind').style.display = paintTool === 'eraser' ? 'none' : '';
+  document.querySelectorAll('#brushKind button').forEach(b => b.classList.toggle('on', b.dataset.k === brushKind));
+  $('#pencilRows').style.display = paintTool === 'pencil' ? '' : 'none';
+  ranges.forEach(r => r.sync());
+  $('#cPSize').checked = prefs.pSize; $('#cPFlow').checked = prefs.pFlow; $('#cPOp').checked = prefs.pOp;
+  requestAnimationFrame(drawCurve);              // after the panel is visible, so it has a size
+  queueSample();
+}
+function togglePop(id) {
+  const p = $(id), was = p.classList.contains('open');
+  closePopups();
+  if (!was) { p.classList.add('open'); if (id === '#pBrush') syncBrushPanel(); if (id === '#pColor') syncColorUI(); }
+}
+$('#bMenu').onclick = () => togglePop('#pMenu');
+$('#bColor').onclick = () => togglePop('#pColor');
+$('#bUndo').onclick = undo;
+$('#bRedo').onclick = redo;
+$('#bFit').onclick = fitView;
+$('#bFlip').onclick = setFlip;
+$('#bLock').onclick = () => { setLock(!prefs.lockView); toast(prefs.lockView ? 'View locked' : 'View unlocked', 900); };
+
+// ---------------------------------------------------------------- color picker
+const sv = $('#sv'), svx = sv.getContext('2d'), hue = $('#hue'), hx = hue.getContext('2d');
+(() => { const g = hx.createLinearGradient(0, 0, hue.width, 0); for (let i = 0; i <= 6; i++) g.addColorStop(i / 6, `hsl(${i * 60},100%,50%)`); hx.fillStyle = g; hx.fillRect(0, 0, hue.width, hue.height); })();
+function drawSV() {
+  const w = sv.width, h = sv.height;
+  svx.fillStyle = `hsl(${color.h},100%,50%)`; svx.fillRect(0, 0, w, h);
+  let g = svx.createLinearGradient(0, 0, w, 0); g.addColorStop(0, '#fff'); g.addColorStop(1, 'rgba(255,255,255,0)');
+  svx.fillStyle = g; svx.fillRect(0, 0, w, h);
+  g = svx.createLinearGradient(0, 0, 0, h); g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, '#000');
+  svx.fillStyle = g; svx.fillRect(0, 0, w, h);
+}
+let svHue = -1;
+function syncColorUI() {
+  const hex = colorHex();
+  $('#bColor').style.background = hex;
+  if (!$('#pColor').classList.contains('open')) return;
+  if (svHue !== color.h) { svHue = color.h; drawSV(); }
+  $('#svMk').style.left = (color.s * sv.width) + 'px'; $('#svMk').style.top = ((1 - color.v) * sv.height) + 'px';
+  $('#svMk').style.background = hex;
+  $('#hueMk').style.left = (color.h / 360 * hue.width) + 'px';
+  $('#curSw').style.background = hex;
+  if (document.activeElement !== $('#hex')) $('#hex').value = hex;
+  const rc = $('#recent'); rc.innerHTML = '';
+  for (const c of recent) { const b = document.createElement('button'); b.style.background = c; b.onclick = () => setColor(rgb2hsv(...hexRgb(c))); rc.append(b); }
+}
+const hexRgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+let prefsT = 0;
+function setColor(c, keepHue) {
+  if (keepHue && (c.s === 0 || c.v === 0)) c.h = color.h;   // greys keep the current hue in the picker
+  color = c; spriteKey = ''; syncColorUI(); queueSample();
+  clearTimeout(prefsT); prefsT = setTimeout(savePrefs, 500);
+}
+function addRecent(hex) {
+  if (recent[0] === hex) return;
+  recent = [hex, ...recent.filter(c => c !== hex)].slice(0, 16);
+}
+function dragPick(el, fn) {
+  el.addEventListener('pointerdown', e => { e.preventDefault(); capture(el, e); fn(e); });
+  el.addEventListener('pointermove', e => { if (el.hasPointerCapture(e.pointerId)) fn(e); });
+}
+dragPick(sv, e => { const r = sv.getBoundingClientRect(); setColor({ h: color.h, s: clamp((e.clientX - r.left) / r.width, 0, 1), v: clamp(1 - (e.clientY - r.top) / r.height, 0, 1) }); });
+dragPick(hue, e => { const r = hue.getBoundingClientRect(); setColor({ ...color, h: clamp((e.clientX - r.left) / r.width, 0, 0.9999) * 360 }); });
+$('#hex').addEventListener('input', e => {
+  let v = e.target.value.trim(); if (v[0] !== '#') v = '#' + v;
+  if (/^#[0-9a-f]{6}$/i.test(v)) setColor(rgb2hsv(...hexRgb(v.toLowerCase())));
+});
+
+// ---------------------------------------------------------------- layers panel
+const EYE = '<svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+const EYE_OFF = '<svg viewBox="0 0 24 24"><path d="M3 3l18 18"/><path d="M10.6 5.1A10 10 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3 3.8M6.6 6.6A17 17 0 0 0 2 12s3.6 7 10 7a9.6 9.6 0 0 0 5.4-1.6"/></svg>';
+function toggleLayers() {
+  const was = $('#pLayers').classList.contains('open');
+  closePopups();
+  if (!was) { $('#pLayers').classList.add('open'); $('#bLayers').classList.add('on'); }
+}
+$('#bLayers').onclick = toggleLayers;
+function buildLayers() {
+  const list = $('#lList'); list.innerHTML = '';
+  for (let i = doc.layers.length - 1; i >= 0; i--) {
+    const L = doc.layers[i], row = document.createElement('div');
+    row.className = 'lrow' + (i === doc.active ? ' on' : '');
+    const nm = document.createElement('div'); nm.className = 'lname'; nm.textContent = L.name;
+    const eye = document.createElement('button'); eye.className = 'eye' + (L.visible ? '' : ' off'); eye.innerHTML = L.visible ? EYE : EYE_OFF;
+    eye.onclick = ev => { ev.stopPropagation(); L.visible = !L.visible; buildLayers(); needRender = true; scheduleSave(); };
+    row.onclick = () => { if (doc.active !== i) { doc.active = i; buildLayers(); scheduleSave(); } };
+    nm.ondblclick = renameLayer;
+    row.append(L.tw, nm, eye); list.append(row);
+  }
+  const L = activeLayer();
+  $('#lOpacity').value = Math.round(L.opacity * 100); $('#oLOp').textContent = Math.round(L.opacity * 100) + '%';
+}
+$('#lOpacity').oninput = e => { const L = activeLayer(); L.opacity = e.target.value / 100; $('#oLOp').textContent = e.target.value + '%'; needRender = true; scheduleSave(); };
+function addLayerUndoable(L, idx) {
+  const prev = doc.active;
+  insertLayer(L, idx);
+  pushUndo({ undo() { doc.layers.splice(idx, 1); doc.active = prev; }, redo() { doc.layers.splice(idx, 0, L); doc.active = idx; } });
+}
+$('#lAdd').onclick = () => {
+  if (doc.layers.length >= MAX_LAYERS) return toast('Layer limit reached');
+  addLayerUndoable(makeLayer(), doc.active + 1);
+};
+$('#lDup').onclick = () => {
+  if (doc.layers.length >= MAX_LAYERS) return toast('Layer limit reached');
+  const S = activeLayer(), L = makeLayer(S.name + ' copy');
+  L.ctx.drawImage(S.canvas, 0, 0); L.opacity = S.opacity; L.visible = S.visible; updateThumb(L);
+  addLayerUndoable(L, doc.active + 1);
+};
+$('#lDel').onclick = () => {
+  const idx = doc.active;
+  if (doc.layers.length === 1) return $('#lClear').onclick();
+  const L = removeLayer(idx), act = doc.active;
+  pushUndo({ undo() { doc.layers.splice(idx, 0, L); doc.active = idx; }, redo() { doc.layers.splice(idx, 1); doc.active = act; } });
+};
+$('#lClear').onclick = () => {
+  if (sel.active) return clearSel();
+  const L = activeLayer(), before = crop(L.canvas, 0, 0, doc.w, doc.h);
+  L.ctx.clearRect(0, 0, doc.w, doc.h); L.saveDirty = true; updateThumb(L); changed();
+  pushUndo({ px: doc.w * doc.h, undo() { putPixels(L, before, 0, 0); }, redo() { L.ctx.clearRect(0, 0, doc.w, doc.h); L.saveDirty = true; updateThumb(L); } });
+};
+function moveLayer(dir) {
+  const i = doc.active, j = i + dir;
+  if (j < 0 || j >= doc.layers.length) return;
+  const swap = () => { const a = doc.layers; [a[i], a[j]] = [a[j], a[i]]; };
+  swap(); doc.active = j; changed();
+  pushUndo({ undo() { swap(); doc.active = i; }, redo() { swap(); doc.active = j; } });
+}
+$('#lUp').onclick = () => moveLayer(1);
+$('#lDown').onclick = () => moveLayer(-1);
+$('#lMerge').onclick = () => {
+  const i = doc.active; if (i === 0) return toast('Nothing below to merge into');
+  const up = doc.layers[i], lo = doc.layers[i - 1];
+  const before = crop(lo.canvas, 0, 0, doc.w, doc.h);
+  if (up.visible) { lo.ctx.globalAlpha = up.opacity; lo.ctx.drawImage(up.canvas, 0, 0); lo.ctx.globalAlpha = 1; }
+  const after = crop(lo.canvas, 0, 0, doc.w, doc.h);
+  lo.saveDirty = true; updateThumb(lo);
+  removeLayer(i); doc.active = i - 1; changed();
+  pushUndo({ px: doc.w * doc.h * 2,
+    undo() { putPixels(lo, before, 0, 0); doc.layers.splice(i, 0, up); doc.active = i; },
+    redo() { putPixels(lo, after, 0, 0); doc.layers.splice(i, 1); doc.active = i - 1; } });
+};
+function renameLayer() {
+  const L = activeLayer(), n = prompt('Layer name', L.name);
+  if (n && n.trim()) { L.name = n.trim().slice(0, 40); buildLayers(); scheduleSave(); }
+}
+$('#lRename').onclick = renameLayer;
+
+// ---------------------------------------------------------------- menu: new / import / export
+function openModal(id) { closePopups(); $(id).classList.add('open'); }
+document.querySelectorAll('[data-close]').forEach(b => b.onclick = () => b.closest('.modal').classList.remove('open'));
+// Dialogs (new canvas, projects, help) close when you tap the dark area around them, like Cancel.
+document.querySelectorAll('.modal').forEach(m => m.addEventListener('pointerdown', e => { if (e.target === m) m.classList.remove('open'); }));
+function screenSize() {
+  const w = Math.round(Math.max(screen.width, screen.height) * dpr), h = Math.round(Math.min(screen.width, screen.height) * dpr);
+  if (!(w >= 256 && h >= 256)) return [1920, 1080];   // screen size unknown (e.g. hidden window)
+  return [Math.min(w, 4096), Math.min(h, 4096)];
+}
+$('#mNew').onclick = () => {
+  const P = $('#presets'); P.innerHTML = '';
+  const ss = screenSize();
+  for (const [name, w, h] of [['Screen ' + ss[0] + '×' + ss[1], ...ss], ['Screen portrait', ss[1], ss[0]], ['Square 2048', 2048, 2048],
+                              ['3000×2000', 3000, 2000], ['A4 300dpi', 2480, 3508], ['1920×1080', 1920, 1080]]) {
+    const b = document.createElement('button'); b.className = 'btn'; b.textContent = name;
+    b.onclick = () => { $('#nW').value = w; $('#nH').value = h; }; P.append(b);
+  }
+  $('#nW').value = doc.w; $('#nH').value = doc.h; $('#nBg').value = doc.bg;
+  openModal('#dNew');
+};
+$('#nGo').onclick = async () => {
+  const w = Math.round(+$('#nW').value), h = Math.round(+$('#nH').value);
+  if (!(w >= 64 && h >= 64 && w <= 8192 && h <= 8192)) return toast('Size must be 64 – 8192 px');
+  if (w * h > 40e6) return toast('Too big — keep it under 40 megapixels');
+  document.querySelectorAll('.modal.open').forEach(m => m.classList.remove('open'));
+  if (stroke) endStroke();
+  await saveNow();                           // keep the current painting in Projects
+  startBlank(w, h, $('#nBg').value);
+  changed();
+};
+$('#mImport').onclick = () => { closePopups(); $('#fileIn').click(); };
+$('#fileIn').onchange = async () => {
+  const f = $('#fileIn').files[0]; $('#fileIn').value = '';
+  if (!f) return;
+  if (doc.layers.length >= MAX_LAYERS) return toast('Layer limit reached');
+  try {
+    const bmp = await createImageBitmap(f);
+    const L = makeLayer(f.name.replace(/\.[^.]+$/, '').slice(0, 30) || 'Image');
+    const k = Math.min(1, doc.w / bmp.width, doc.h / bmp.height), w = bmp.width * k, h = bmp.height * k;
+    L.ctx.drawImage(bmp, (doc.w - w) / 2, (doc.h - h) / 2, w, h); updateThumb(L);
+    addLayerUndoable(L, doc.active + 1);
+  } catch (err) { toast('Could not open that image'); }
+};
+async function flatten() {
+  const c = makeCanvas(doc.w, doc.h), x = c.getContext('2d');
+  x.fillStyle = doc.bg; x.fillRect(0, 0, doc.w, doc.h);
+  for (const L of doc.layers) if (L.visible) { x.globalAlpha = L.opacity; x.drawImage(L.canvas, 0, 0); }
+  return toBlob(c);
+}
+const fileName = () => 'painting-' + new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-') + '.png';
+$('#mSave').onclick = async () => {
+  closePopups();
+  const blob = await flatten();
+  if (window.TabletPainterNative?.savePng) return window.TabletPainterNative.savePng(blob, fileName());
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = fileName(); a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  toast('Saved ' + a.download);
+};
+$('#mShare').onclick = async () => {
+  closePopups();
+  const blob = await flatten(), file = new File([blob], fileName(), { type: 'image/png' });
+  if (window.TabletPainterNative?.sharePng) return window.TabletPainterNative.sharePng(blob, file.name);
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file] }); } catch (e) { if (e.name !== 'AbortError') toast('Share failed'); }
+  } else toast('Sharing is not supported here — use Save PNG');
+};
+function syncRot() { $('#mRotV').textContent = prefs.rotate ? 'on' : 'off'; }
+$('#mRot').onclick = () => { prefs.rotate = !prefs.rotate; syncRot(); savePrefs(); toast(prefs.rotate ? 'Two-finger rotation on' : 'Rotation locked: pinch only pans and zooms'); };
+function syncAutoHide() { $('#mAutoHideV').textContent = prefs.autoHide ? 'on' : 'off'; }
+$('#mAutoHide').onclick = () => { prefs.autoHide = !prefs.autoHide; syncAutoHide(); savePrefs(); toast(prefs.autoHide ? 'Bars and sliders hide while the pen draws near them' : 'UI always stays visible'); };
+function syncFinger() { $('#mFingerV').textContent = prefs.fingerDraw ? 'on' : 'off'; }
+$('#mFinger').onclick = () => { prefs.fingerDraw = !prefs.fingerDraw; syncFinger(); savePrefs(); toast(prefs.fingerDraw ? 'One finger draws' : 'One finger pans / holds to pick color'); };
+$('#mFull').onclick = () => { closePopups(); document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.().catch(() => {}); };
+$('#mHelp').onclick = () => openModal('#dHelp');
+
+// ---------------------------------------------------------------- Android app bridge
+// In the APK, MainActivity adds window.PainterNative (save to Gallery, share sheet).
+if (window.PainterNative) {
+  const b64 = blob => new Promise(r => { const fr = new FileReader(); fr.onload = () => r(String(fr.result).split(',')[1]); fr.readAsDataURL(blob); });
+  window.TabletPainterNative = {
+    async savePng(blob, name) { const err = window.PainterNative.savePng(await b64(blob), name); toast(err ? 'Save failed: ' + err : 'Saved to Pictures / Tablet Painter'); },
+    async sharePng(blob, name) { const err = window.PainterNative.sharePng(await b64(blob), name); if (err) toast('Share failed: ' + err); },
+    async saveFile(blob, name) { const err = window.PainterNative.saveFile(await b64(blob), name); toast(err ? 'Export failed: ' + err : 'Exported to Download / Tablet Painter / ' + name, 3500); },
+  };
+  $('#mFull').style.display = 'none';
+}
+// Android back button: close whatever panel is open; returns false when there was nothing to close.
+window.__tpBack = () => {
+  if (fx) { fxCancel(); return true; }
+  if (xf) { xfCancel(); return true; }
+  const m = document.querySelector('.modal.open');
+  if (m) { m.classList.remove('open'); return true; }
+  if (anyPopupOpen()) { closePopups(); return true; }
+  if ($('#pLayers').classList.contains('open')) { toggleLayers(); return true; }
+  return false;
+};
+
+// ---------------------------------------------------------------- persistence
+function savePrefs() {
+  try { localStorage.setItem('tabletPainter.prefs', JSON.stringify({ tools, prefs, color, recent, brushKind, tool: tool === 'picker' ? prevTool : tool })); } catch (e) {}
+}
+function loadPrefs() {
+  try {
+    const d = JSON.parse(localStorage.getItem('tabletPainter.prefs') || 'null'); if (!d) return;
+    for (const k of ['brush', 'pencil', 'eraser']) Object.assign(tools[k], d.tools?.[k]);
+    if (d.brushKind === 'pencil') brushKind = 'pencil';
+    Object.assign(prefs, d.prefs); delete prefs.pCurve;
+    if (!Array.isArray(prefs.curve) || prefs.curve.length < 2 || prefs.curve[0][0] !== 0 || prefs.curve.at(-1)[0] !== 1) prefs.curve = [[0, 0], [1, 1]];
+    if (d.color) color = d.color; if (d.recent) recent = d.recent;
+    if (d.tool === 'brush' || d.tool === 'eraser') tool = d.tool;
+  } catch (e) {}
+}
+let dbP = null;
+function db() {
+  return dbP ||= new Promise((res, rej) => {
+    const r = indexedDB.open('tabletPainter', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('kv');
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  });
+}
+async function kv(mode, key, val) {
+  const d = await db();
+  return new Promise((res, rej) => {
+    const tx = d.transaction('kv', mode), st = tx.objectStore('kv');
+    const rq = mode === 'readonly' ? st.get(key) : st.put(val, key);
+    tx.oncomplete = () => res(rq.result); tx.onerror = () => rej(tx.error);
+  });
+}
+async function kvDel(key) {
+  const d = await db();
+  return new Promise((res, rej) => { const tx = d.transaction('kv', 'readwrite'); tx.objectStore('kv').delete(key); tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
+}
+
+// ---------------------------------------------------------------- projects
+// Each painting is a project: 'proj:<id>' holds { id, name, w, h, bg, active, layers: [{ name, visible, opacity, blob(PNG) }] },
+// 'projIndex' lists { id, name, updated, w, h, n, thumb } for the Projects screen, 'currentId' is the open one.
+let projId = null, projName = '';
+const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const defaultName = () => 'Painting ' + new Date().toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+const getIndex = async () => (await kv('readonly', 'projIndex')) || [];
+let idxQ = Promise.resolve();
+function withIndex(fn) {                      // serialised read-modify-write of the index
+  const run = idxQ.then(async () => { const idx = await getIndex(); const r = await fn(idx); idx.sort((a, b) => b.updated - a.updated); await kv('readwrite', 'projIndex', idx); return r; });
+  idxQ = run.catch(() => {});
+  return run;
+}
+function startBlank(w, h, bg) {
+  newDoc(w, h, bg); doc.layers.push(makeLayer()); doc.active = 0;
+  projId = newId(); projName = defaultName();
+  fitView();
+}
+async function projThumb() {
+  const k = 320 / Math.max(doc.w, doc.h), c = makeCanvas(Math.max(1, Math.round(doc.w * k)), Math.max(1, Math.round(doc.h * k))), x = c.getContext('2d');
+  x.fillStyle = doc.bg; x.fillRect(0, 0, c.width, c.height);
+  for (const L of doc.layers) if (L.visible) { x.globalAlpha = L.opacity; x.drawImage(L.canvas, 0, 0, c.width, c.height); }
+  return new Promise(r => c.toBlob(r, 'image/jpeg', 0.85));
+}
+let saveT = 0, saveChain = Promise.resolve();
+function scheduleSave() { clearTimeout(saveT); saveT = setTimeout(saveNow, 1500); }
+function saveNow() {                          // queued, so awaiting it means "everything so far is stored"
+  clearTimeout(saveT);
+  return saveChain = saveChain.then(doSave).catch(e => { console.warn('autosave failed', e); toast('Autosave failed: ' + e.message); });
+}
+async function doSave() {
+  if (!projId || !doc.layers.length) return;
+  if (xf && xf.mode === 'pixels') { scheduleSave(); return; }   // pixels are lifted mid-transform: save once it's applied or cancelled
+  const id = projId;
+  for (const L of [...doc.layers]) if (L.saveDirty || !L.blob) { L.saveDirty = false; L.blob = await toBlob(L.canvas); }
+  const updated = Date.now(), thumb = await projThumb();
+  await kv('readwrite', 'proj:' + id, { v: 2, id, name: projName, w: doc.w, h: doc.h, bg: doc.bg, active: doc.active, updated,
+    layers: doc.layers.map(L => ({ name: L.name, visible: L.visible, opacity: L.opacity, blob: L.blob })) });
+  await withIndex(idx => {
+    const e = { id, name: projName, updated, w: doc.w, h: doc.h, n: doc.layers.length, thumb };
+    const i = idx.findIndex(p => p.id === id);
+    if (i >= 0) idx[i] = e; else idx.push(e);
+  });
+  await kv('readwrite', 'currentId', id);
+}
+async function loadRecord(d) {
+  newDoc(d.w, d.h, d.bg);
+  for (const l of d.layers) {
+    const L = makeLayer(l.name); L.visible = l.visible; L.opacity = l.opacity;
+    if (l.blob) { const bmp = await createImageBitmap(l.blob); L.ctx.drawImage(bmp, 0, 0); bmp.close?.(); L.blob = l.blob; L.saveDirty = false; }
+    updateThumb(L); doc.layers.push(L);
+  }
+  if (!doc.layers.length) doc.layers.push(makeLayer());
+  doc.active = clamp(d.active | 0, 0, doc.layers.length - 1);
+  projId = d.id; projName = d.name || defaultName();
+  fitView(); buildLayers(); needRender = true;
+}
+async function openProject(id) {
+  if (stroke) endStroke();
+  await saveNow();
+  const rec = await kv('readonly', 'proj:' + id);
+  if (!rec) return toast('That project could not be found');
+  toast('Opening ' + rec.name + '…', 900);
+  await loadRecord(rec);
+  await kv('readwrite', 'currentId', id);
+  $('#dProj').classList.remove('open');
+}
+
+// Projects screen
+let thumbUrls = [];
+async function renderProjects() {
+  thumbUrls.forEach(u => URL.revokeObjectURL(u)); thumbUrls = [];
+  const idx = await getIndex(), grid = $('#projGrid'); grid.innerHTML = '';
+  if (!idx.length) { grid.innerHTML = '<p>No projects yet.</p>'; return; }
+  for (const p of idx) {
+    const card = document.createElement('div'); card.className = 'pc' + (p.id === projId ? ' cur' : '');
+    const img = document.createElement('img');
+    if (p.thumb) { const u = URL.createObjectURL(p.thumb); thumbUrls.push(u); img.src = u; }
+    img.onclick = () => p.id === projId ? $('#dProj').classList.remove('open') : openProject(p.id);
+    const nm = document.createElement('div'); nm.className = 'pn'; nm.textContent = p.name;
+    const meta = document.createElement('div'); meta.className = 'pm';
+    meta.textContent = (p.id === projId ? 'Open now · ' : '') + p.w + '×' + p.h + ' · ' + p.n + (p.n === 1 ? ' layer' : ' layers') + ' · ' +
+      new Date(p.updated).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    const acts = document.createElement('div'); acts.className = 'pa';
+    for (const [label, fn] of [['Rename', renameProject], ['Copy', copyProject], ['Export', exportProject], ['Delete', deleteProject]]) {
+      const b = document.createElement('button'); b.textContent = label; b.onclick = () => fn(p.id, p.name); acts.append(b);
+    }
+    card.append(img, nm, meta, acts); grid.append(card);
+  }
+}
+async function openProjects() {
+  closePopups();
+  if (stroke) endStroke();
+  await saveNow();
+  await renderProjects();
+  openModal('#dProj');
+}
+async function renameProject(id, old) {
+  const n = prompt('Project name', old);
+  if (!n || !n.trim()) return;
+  const name = n.trim().slice(0, 60);
+  if (id === projId) { projName = name; await saveNow(); }
+  else {
+    const rec = await kv('readonly', 'proj:' + id); if (!rec) return;
+    rec.name = name; await kv('readwrite', 'proj:' + id, rec);
+    await withIndex(idx => { const e = idx.find(p => p.id === id); if (e) e.name = name; });
+  }
+  renderProjects();
+}
+async function copyProject(id) {
+  if (id === projId) await saveNow();
+  const rec = await kv('readonly', 'proj:' + id); if (!rec) return;
+  const nid = newId(), updated = Date.now();
+  rec.id = nid; rec.name = rec.name + ' copy'; rec.updated = updated;
+  await kv('readwrite', 'proj:' + nid, rec);
+  await withIndex(idx => { const e = idx.find(p => p.id === id); idx.push({ ...(e || {}), id: nid, name: rec.name, updated }); });
+  renderProjects();
+}
+async function deleteProject(id, name) {
+  if (!confirm('Delete "' + name + '"? This cannot be undone.')) return;
+  await kvDel('proj:' + id);
+  const idx = await withIndex(idx => { const i = idx.findIndex(p => p.id === id); if (i >= 0) idx.splice(i, 1); return idx.slice(); });
+  if (id === projId) {                        // deleted the open one: go to the next, or a blank page
+    projId = null;
+    if (idx.length) { await openProject(idx[0].id); openModal('#dProj'); }
+    else { const [w, h] = screenSize(); startBlank(w, h, '#ffffff'); buildLayers(); }
+  }
+  renderProjects();
+}
+
+// .tpaint file: "TPAINT01" + uint32 JSON length + JSON (name, size, layer list) + the layer PNGs back to back.
+const MAGIC = 'TPAINT01';
+function packProject(rec) {
+  const meta = { app: 'Tablet Painter', name: rec.name, w: rec.w, h: rec.h, bg: rec.bg, active: rec.active,
+    layers: rec.layers.map(l => ({ name: l.name, visible: l.visible, opacity: l.opacity, size: l.blob.size })) };
+  const json = new TextEncoder().encode(JSON.stringify(meta)), head = new Uint8Array(12);
+  head.set(new TextEncoder().encode(MAGIC)); new DataView(head.buffer).setUint32(8, json.length, true);
+  return new Blob([head, json, ...rec.layers.map(l => l.blob)], { type: 'application/octet-stream' });
+}
+async function unpackProject(file) {
+  const buf = await file.arrayBuffer();
+  if (buf.byteLength < 12 || new TextDecoder().decode(new Uint8Array(buf, 0, 8)) !== MAGIC) throw new Error('not a Tablet Painter project file');
+  const n = new DataView(buf).getUint32(8, true), meta = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 12, n)));
+  if (!(meta.w >= 1 && meta.h >= 1 && meta.w <= 8192 && meta.h <= 8192)) throw new Error('the file has a bad canvas size');
+  let off = 12 + n;
+  const layers = meta.layers.map(l => { const blob = new Blob([buf.slice(off, off + l.size)], { type: 'image/png' }); off += l.size; return { name: l.name, visible: l.visible, opacity: l.opacity, blob }; });
+  return { name: meta.name || 'Imported', w: meta.w, h: meta.h, bg: meta.bg || '#ffffff', active: meta.active | 0, layers };
+}
+async function exportProject(id) {
+  if (id === projId) await saveNow();
+  const rec = await kv('readonly', 'proj:' + id); if (!rec) return;
+  const blob = packProject(rec), name = (rec.name.replace(/[\\/:*?"<>|]+/g, '_').trim() || 'painting') + '.tpaint';
+  if (window.TabletPainterNative?.saveFile) return window.TabletPainterNative.saveFile(blob, name);
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  toast('Exported ' + name);
+}
+$('#projIn').onchange = async () => {
+  const f = $('#projIn').files[0]; $('#projIn').value = '';
+  if (!f) return;
+  try {
+    const rec = await unpackProject(f);
+    rec.id = newId();
+    await kv('readwrite', 'proj:' + rec.id, rec);
+    await openProject(rec.id);
+    await saveNow();                          // adds it to the Projects list with a thumbnail
+    toast('Opened ' + rec.name);
+  } catch (e) { toast('Could not open: ' + e.message, 3000); }
+};
+$('#mProjects').onclick = openProjects;
+$('#pjOpenFile').onclick = () => $('#projIn').click();
+$('#pjNew').onclick = () => { $('#dProj').classList.remove('open'); $('#mNew').onclick(); };
+
+document.addEventListener('visibilitychange', () => { if (document.hidden) { if (stroke) endStroke(); if (xf) xfApply(); saveNow(); savePrefs(); } });
+
+// ---------------------------------------------------------------- start
+async function loadStartup() {
+  try {
+    const cur = await kv('readonly', 'currentId');
+    let rec = cur && await kv('readonly', 'proj:' + cur);
+    if (!rec) { const idx = await getIndex(); if (idx.length) rec = await kv('readonly', 'proj:' + idx[0].id); }
+    if (rec) { await loadRecord(rec); return true; }
+    const old = await kv('readonly', 'doc');      // painting saved by the first version (before projects)
+    if (old && old.w && old.layers?.length) {
+      await loadRecord({ ...old, id: newId(), name: 'My first painting' });
+      await saveNow(); await kvDel('doc');
+      return true;
+    }
+  } catch (e) { console.warn('load failed', e); }
+  return false;
+}
+(async function init() {
+  loadPrefs();
+  addEventListener('resize', resize); resize();
+  if (!(await loadStartup())) {
+    const [w, h] = screenSize();
+    startBlank(w, h, '#ffffff');
+    if (!localStorage.getItem('tabletPainter.seenHelp')) { localStorage.setItem('tabletPainter.seenHelp', '1'); openModal('#dHelp'); }
+  }
+  filterOK = testFilter();
+  setBrushKind(brushKind); setTool(tool); syncColorUI(); syncFinger(); syncAutoHide(); syncRot(); setLock(prefs.lockView); syncSelPop(); buildLayers(); fitView();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
