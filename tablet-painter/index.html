@@ -94,6 +94,12 @@
   .lname { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .eye { width:40px; height:40px; display:grid; place-items:center; color:var(--text); }
   .eye.off { color:#666; }
+  /* a layer clipped to the one below: indented, with an arrow pointing down at the layer it clips to */
+  .lrow.clip { margin-left:22px; position:relative; }
+  .lrow.clip::before { content:''; position:absolute; left:-15px; top:10px; bottom:14px; width:2px; background:var(--acc); border-radius:1px; }
+  .lrow.clip::after { content:''; position:absolute; left:-19px; bottom:9px; border:5px solid transparent; border-top:7px solid var(--acc); border-bottom:0; }
+  #lActs button.on { background:#2d4a6b; color:#fff; box-shadow:inset 0 -2px 0 var(--acc); }
+  #lActs button:disabled { opacity:.4; }
   #lOpRow { padding:4px 12px; margin:0; }
   #lOpRow label { width:64px; }
   #lActs { display:grid; grid-template-columns:repeat(4,1fr); gap:4px; padding:8px; border-top:1px solid var(--line); }
@@ -294,7 +300,7 @@
   <div class="row" id="lOpRow"><label>Opacity</label><input type="range" id="lOpacity" min="0" max="100"><output id="oLOp"></output></div>
   <div id="lActs">
     <button id="lUp">Up</button><button id="lDown">Down</button><button id="lDup">Duplicate</button><button id="lMerge">Merge ↓</button>
-    <button id="lRename">Rename</button><button id="lClear">Clear</button><button id="lDel" style="grid-column:span 2">Delete</button>
+    <button id="lRename">Rename</button><button id="lClear">Clear</button><button id="lClip" title="Clip to layer below: this layer only shows where the layer under it has paint">Clip ↓</button><button id="lDel">Delete</button>
   </div>
 </div>
 
@@ -331,9 +337,10 @@
     <li><b>Filters</b> (three-circles button): Gaussian blur and Noise, with a live preview; Apply or Cancel. With a selection, only the selected part of the layer changes. Noise only adds grain where something is painted; "New pattern" rolls a different grain.</li>
     <li><b>Transform</b> (box-with-corners button, or T): moves, scales and rotates the selected part of the layer, or the whole layer with no selection. Drag inside the box to move, corners to scale, edge dots to stretch, the round knob to rotate (snaps at 45°). Two fingers still pan and zoom the view. "Selection outline" moves just the selection, not the pixels.</li>
     <li>Rectangle and ellipse selections line up with the screen, even when the canvas is rotated.</li>
+    <li><b>Clip ↓</b> (layers panel): the layer only shows where the layer under it has paint, like a mask; you can still paint anywhere on it and turn Clip off again to see everything. Several clipped layers in a row all clip to the first unclipped layer below them. Hiding that layer or lowering its opacity applies to its clipped layers too. <b>Merge ↓</b> on a clipped layer bakes it into the layer below for good (Undo still brings it back).</li>
     <li>Tapping the canvas closes any open panel without painting.</li>
     <li>While you draw, bars and sliders the pen comes near fade away so you can paint under them; they come back when you lift the pen (switch it off in the menu: Hide UI near the pen).</li>
-    <li>Keyboard: B brush, P pencil, E eraser, I eyedropper, S select, M mirror, K lock view, Ctrl+D deselect, [ ] size, Ctrl+Z / Ctrl+Y, 0 fit, L layers, mouse wheel zoom, Space+drag or middle drag to pan.</li>
+    <li>Keyboard: B brush, P pencil, E eraser, I eyedropper, S select, M mirror, K lock view, Ctrl+D deselect, Ctrl+Alt+G clip layer, [ ] size, Ctrl+Z / Ctrl+Y, 0 fit, L layers, mouse wheel zoom, Space+drag or middle drag to pan.</li>
     <li>Your painting is saved automatically on this device.</li>
   </ul>
   <div class="btns"><button class="btn pri" data-close>OK</button></div>
@@ -367,7 +374,9 @@ let snap, snapCtx, buf, bctx, tmp, tctx;          // stroke scratch canvases (do
 const sel = { active: false, c: null, ctx: null, outline: [] };   // selection mask (white = selected)
 let selDraw = null, filterOK = true;
 let layerSeq = 0;
-let needRender = true;
+let needRender = true;                            // redraw the whole screen on the next frame
+let damage = null;                                // or just this doc-space box (a stroke in progress)
+let compGen = 0;                                  // bumped for every new document (layer ids start again at 1)
 
 const tools = {
   brush:  { size: 14, opacity: 1, flow: 1, hardness: 0.8, spacing: 0.08 },
@@ -464,11 +473,12 @@ function newDoc(w, h, bg) {
   tmp = makeCanvas(w, h); tctx = tmp.getContext('2d');
   sel.active = false; sel.c = null; sel.ctx = null; sel.outline = []; selDraw = null; syncSelBar();
   undoStack.length = 0; redoStack.length = 0; undoPixels = 0; updateUndoBtns();
+  freeComp(); compGen++;
 }
 function makeLayer(name) {
   const canvas = makeCanvas(doc.w, doc.h);
   const L = { id: ++layerSeq, name: name || 'Layer ' + layerSeq, canvas, ctx: canvas.getContext('2d'),
-              visible: true, opacity: 1, saveDirty: true, blob: null };
+              visible: true, opacity: 1, clip: false, ver: 0, saveDirty: true, blob: null };   // ver: bumped when its pixels change (except by a stroke)
   const k = 60 / Math.max(doc.w, doc.h);
   L.thumb = makeCanvas(Math.max(1, Math.round(doc.w * k)), Math.max(1, Math.round(doc.h * k)));
   L.tctx = L.thumb.getContext('2d');
@@ -485,7 +495,7 @@ function insertLayer(L, idx) { doc.layers.splice(idx, 0, L); doc.active = idx; c
 function removeLayer(idx) { const [L] = doc.layers.splice(idx, 1); doc.active = clamp(idx - 1, 0, doc.layers.length - 1); changed(); return L; }
 function putPixels(L, c, x, y) {
   L.ctx.clearRect(x, y, c.width, c.height); L.ctx.drawImage(c, x, y);
-  L.saveDirty = true; updateThumb(L);
+  L.saveDirty = true; updateThumb(L); L.ver++;
 }
 
 // ---------------------------------------------------------------- undo
@@ -838,7 +848,11 @@ function flushStroke() {
   c.globalCompositeOperation = st.t === 'eraser' ? 'destination-out' : 'source-over';
   c.drawImage(src, r.x, r.y, r.w, r.h, r.x, r.y, r.w, r.h);
   c.restore();
-  needRender = true;
+  if (st.id >= 0) markDamage(r); else needRender = true;   // (id -1: the brush settings test stroke)
+}
+function markDamage(r) {                     // only this doc-space box changed: redraw just that part of the screen
+  if (!damage) damage = { x0: r.x, y0: r.y, x1: r.x + r.w, y1: r.y + r.h };
+  else { damage.x0 = Math.min(damage.x0, r.x); damage.y0 = Math.min(damage.y0, r.y); damage.x1 = Math.max(damage.x1, r.x + r.w); damage.y1 = Math.max(damage.y1, r.y + r.h); }
 }
 function endStroke() {
   const st = stroke; if (!st) return;
@@ -863,7 +877,7 @@ function cancelStroke() {
   stroke = null;
   strokeCursorEnd(st);
   const r = clampBB(st.bb);
-  if (r) { st.L.ctx.clearRect(r.x, r.y, r.w, r.h); st.L.ctx.drawImage(snap, r.x, r.y, r.w, r.h, r.x, r.y, r.w, r.h); }
+  if (r) { st.L.ctx.clearRect(r.x, r.y, r.w, r.h); st.L.ctx.drawImage(snap, r.x, r.y, r.w, r.h, r.x, r.y, r.w, r.h); markDamage(r); }
   needRender = true;
 }
 
@@ -925,14 +939,19 @@ function renderSample() {
 
 // ---------------------------------------------------------------- eyedropper
 const pk = makeCanvas(1, 1), pkx = pk.getContext('2d', { willReadFrequently: true });
+const pkG = makeCanvas(1, 1).getContext('2d');   // scratch for clipping groups (never read back, so it stays on the GPU)
 let pickRing = null;
 function sampleAt(cx, cy) {
   const d = toDoc(cx, cy), x = Math.floor(d.x), y = Math.floor(d.y);
   pickRing = { x: cx, y: cy };
   needRender = true;
   if (x < 0 || y < 0 || x >= doc.w || y >= doc.h) return;
-  pkx.globalAlpha = 1; pkx.fillStyle = doc.bg; pkx.fillRect(0, 0, 1, 1);
-  for (const L of doc.layers) if (L.visible && L.opacity > 0) { pkx.globalAlpha = L.opacity; pkx.drawImage(L.canvas, x, y, 1, 1, 0, 0, 1, 1); }
+  // The painting as it looks, at one pixel. Every layer is read through a 1×1 source rect, so only that
+  // pixel ever has to come back from the GPU.
+  pkx.setTransform(1, 0, 0, 1, -x, -y); pkG.setTransform(1, 0, 0, 1, -x, -y);
+  pkx.globalAlpha = 1; pkx.fillStyle = doc.bg; pkx.fillRect(x, y, 1, 1);
+  drawRange(pkx, 0, doc.layers.length - 1, () => pkG, { x, y, w: 1, h: 1 });
+  pkx.setTransform(1, 0, 0, 1, 0, 0);
   const p = pkx.getImageData(0, 0, 1, 1).data;
   setColor(rgb2hsv(p[0], p[1], p[2]), true);
 }
@@ -1053,7 +1072,7 @@ function invertSel() {
 }
 function editLayer(fn) {                  // run fn on the active layer's context, undoable
   const L = activeLayer(), before = crop(L.canvas, 0, 0, doc.w, doc.h);
-  fn(L.ctx);
+  fn(L.ctx); L.ver++;
   const after = crop(L.canvas, 0, 0, doc.w, doc.h);
   L.saveDirty = true; updateThumb(L); changed();
   pushUndo({ px: doc.w * doc.h * 2, undo() { putPixels(L, before, 0, 0); }, redo() { putPixels(L, after, 0, 0); } });
@@ -1250,6 +1269,7 @@ function openFilter(kind) {
   fxSync();
 }
 function closeFx() {
+  if (fx) fx.L.ver++;
   fx = null; fxPad = null; fxOut = null;              // let the big scratch buffers go
   document.body.classList.remove('fx'); $('#fxBar').classList.remove('open');
   needRender = true;
@@ -1354,6 +1374,7 @@ function xfReadout() {
 }
 function xfIsIdentity(x) { return x.angle === 0 && x.sx === 1 && x.sy === 1 && x.cx === x.bx + x.w / 2 && x.cy === x.by + x.h / 2; }
 function closeXf() {
+  if (xf) xf.L.ver++;
   xf = null;
   document.body.classList.remove('xf'); $('#xfBar').classList.remove('open'); $('#bXf').classList.remove('on');
   needRender = true;
@@ -1475,13 +1496,149 @@ $('#xfRot90').onclick = () => { xf.angle += Math.PI / 2; xfReadout(); needRender
 $('#xfReset').onclick = () => { Object.assign(xf, { angle: 0, sx: 1, sy: 1, cx: xf.bx + xf.w / 2, cy: xf.by + xf.h / 2 }); xfReadout(); needRender = true; };
 $('#xfUniform').onclick = () => { prefs.xfUniform = prefs.xfUniform === false; $('#xfUniform').classList.toggle('on', prefs.xfUniform); savePrefs(); };
 
+// ---------------------------------------------------------------- compositing: clipping groups and layer caches
+// "Clip ↓" (L.clip): the layer only shows where the layer it clips to has paint. It clips to the nearest
+// unclipped layer under it (its base); several clipped layers in a row share one base. A base and the
+// clipped layers right above it are drawn as one unit: the base, then each clipped layer with
+// 'source-atop' (paint only lands where the base has alpha), and the unit goes down with the base's
+// opacity, so hiding or fading the base hides or fades its clipped layers too, like Photoshop's clipping
+// masks. A clipped bottom layer has nothing to clip to and is drawn normally.
+function unitAt(i) {                             // [first, last] index of the unit that holds layer i
+  const Ls = doc.layers;
+  let a = i; while (a > 0 && Ls[a].clip) a--;
+  let b = i; while (b + 1 < Ls.length && Ls[b + 1].clip) b++;
+  return [a, b];
+}
+const isClipped = i => i > 0 && doc.layers[i].clip;
+const shows = L => L.visible && L.opacity > 0 && L.canvas.width > 0;
+function unitMembers(a, b) {                     // the clipped layers of unit a..b that show
+  const m = [];
+  for (let i = a + 1; i <= b; i++) if (shows(doc.layers[i])) m.push(doc.layers[i]);
+  return m;
+}
+// One layer's pixels, in doc space (c's transform maps doc space onto c), plus the lifted transform
+// pixels when they belong to it. With r, only that doc rect is read.
+function drawLayerPx(c, L, r) {
+  if (r) c.drawImage(L.canvas, r.x, r.y, r.w, r.h, r.x, r.y, r.w, r.h);
+  else c.drawImage(L.canvas, 0, 0);
+  if (xf && xf.mode === 'pixels' && xf.L === L) { c.save(); c.transform(...xfMatrix()); c.imageSmoothingEnabled = true; c.drawImage(xf.float, 0, 0); c.restore(); }
+}
+function composeUnit(g, a, members, r) {         // a base and its clipped layers into g (only rect r, if given)
+  g.save();
+  g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
+  if (r) g.clearRect(r.x, r.y, r.w, r.h); else g.clearRect(0, 0, doc.w, doc.h);
+  drawLayerPx(g, doc.layers[a], r);
+  g.globalCompositeOperation = 'source-atop';
+  for (const L of members) { g.globalAlpha = L.opacity; drawLayerPx(g, L, r); }
+  g.restore();
+}
+// Unit a..b onto c. getG() hands out a scratch context the size of c, with the same transform, for
+// putting a clipping group together.
+function drawUnit(c, a, b, getG, r) {
+  const base = doc.layers[a];
+  if (!shows(base)) return;                      // a hidden base hides its clipped layers too
+  const m = unitMembers(a, b), g = m.length && getG ? getG() : null;
+  c.globalAlpha = base.opacity;
+  if (!g) drawLayerPx(c, base, r);
+  else { composeUnit(g, a, m, r); c.save(); c.setTransform(1, 0, 0, 1, 0, 0); c.drawImage(g.canvas, 0, 0); c.restore(); }
+  c.globalAlpha = 1;
+}
+function drawRange(c, i0, i1, getG, r) {         // layers i0..i1, bottom to top, unit by unit
+  for (let a = i0; a <= i1; ) {
+    let b = a; while (b < i1 && doc.layers[b + 1].clip) b++;
+    drawUnit(c, a, b, getG, r);
+    a = b + 1;
+  }
+}
+function compositeCanvas(w, h) {                 // the whole painting (paper + layers) at w × h
+  const c = makeCanvas(w, h), x = c.getContext('2d'), k = [w / doc.w, 0, 0, h / doc.h, 0, 0];
+  x.setTransform(...k);
+  x.fillStyle = doc.bg; x.fillRect(0, 0, doc.w, doc.h);
+  let g = null;
+  const getG = () => { if (!g) { g = makeCanvas(w, h).getContext('2d'); g.setTransform(...k); } return g; };
+  if (doc.layers.length) drawRange(x, 0, doc.layers.length - 1, getG);
+  if (g) g.canvas.width = 0;
+  return c;
+}
+
+// Layer caches. While you paint only the active layer changes, so the layers under its unit are kept
+// flattened in comp.below and the ones over it in comp.above, and every frame is drawn from three images
+// however many layers there are. The active unit, when it has clipped layers that show, is put together in
+// comp.act (which also serves as scratch while the other two are built). Each cache is keyed by what is
+// in it (ids, pixel versions, order, visibility, opacity, clip), so a change to one of its layers rebuilds
+// it on the next frame, while changes to the active layer (say, undoing a stroke on it) leave it alone.
+const comp = { below: null, above: null, act: null, kB: '', kA: '', kU: '' };
+function dropComp(k) { if (comp[k]) { comp[k].canvas.width = 0; comp[k] = null; } }
+function freeComp() { dropComp('below'); dropComp('above'); dropComp('act'); comp.kB = comp.kA = comp.kU = ''; }
+function compCtx(k) {
+  let x = comp[k];
+  if (!x || x.canvas.width !== doc.w || x.canvas.height !== doc.h) {
+    if (x) x.canvas.width = 0;
+    x = comp[k] = makeCanvas(doc.w, doc.h).getContext('2d');
+  }
+  return x;
+}
+function rangeKey(i0, i1) {                      // '' when a cache would save nothing (fewer than two layers show)
+  if (i0 > i1) return '';
+  let s = '', n = 0;
+  for (let i = i0; i <= i1; i++) {
+    const L = doc.layers[i];
+    if (shows(L)) n++;
+    s += L.id + '.' + L.ver + (L.visible ? '' : 'h') + (L.clip ? 'c' : '') + L.opacity + ',';
+  }
+  return n < 2 ? '' : compGen + '|' + doc.w + 'x' + doc.h + '|' + i0 + '-' + i1 + '|' + s;
+}
+function hasGroup(i0, i1) { for (let i = i0 + 1; i <= i1; i++) if (doc.layers[i].clip && shows(doc.layers[i])) return true; return false; }
+function updateComp(a, b, dmg) {
+  const n = doc.layers.length;
+  const kB = rangeKey(0, a - 1), kA = rangeKey(b + 1, n - 1);
+  const m = shows(doc.layers[a]) ? unitMembers(a, b) : [], kU = m.length ? rangeKey(a, b) : '';
+  const getG = () => { comp.kU = null; return compCtx('act'); };   // borrowed as scratch: rebuilt afterwards
+  if (kB !== comp.kB) {
+    if (kB) { const x = compCtx('below'); x.clearRect(0, 0, doc.w, doc.h); drawRange(x, 0, a - 1, getG); } else dropComp('below');
+    comp.kB = kB;
+  }
+  if (kA !== comp.kA) {
+    if (kA) { const x = compCtx('above'); x.clearRect(0, 0, doc.w, doc.h); drawRange(x, b + 1, n - 1, getG); } else dropComp('above');
+    comp.kA = kA;
+  }
+  if (kU) {
+    if (kU !== comp.kU || xf || fx) composeUnit(compCtx('act'), a, m);   // transform / filter previews change it every frame
+    else if (dmg) composeUnit(comp.act, a, m, dmg);                      // a stroke: just the part it touched
+    comp.kU = kU;
+  } else {
+    if (!(kB && hasGroup(0, a - 1)) && !(kA && hasGroup(b + 1, n - 1))) dropComp('act');
+    comp.kU = '';
+  }
+}
+
 // ---------------------------------------------------------------- rendering
 let hover = null;
+function screenBox(r) {                          // device-pixel box covering doc rect r on screen, with a margin for filtering
+  const k = V.s * dpr, cs = Math.cos(V.r) * k, sn = Math.sin(V.r) * k;
+  const A = cs * V.f, B = sn * V.f, C = -sn, D = cs, E = V.x * dpr, F = V.y * dpr, p = 2 + 2 / Math.min(1, k);
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const [x, y] of [[r.x - p, r.y - p], [r.x + r.w + p, r.y - p], [r.x - p, r.y + r.h + p], [r.x + r.w + p, r.y + r.h + p]]) {
+    const X = A * x + C * y + E, Y = B * x + D * y + F;
+    if (X < x0) x0 = X; if (X > x1) x1 = X; if (Y < y0) y0 = Y; if (Y > y1) y1 = Y;
+  }
+  x0 = Math.max(0, Math.floor(x0) - 2); y0 = Math.max(0, Math.floor(y0) - 2);
+  x1 = Math.min(view.width, Math.ceil(x1) + 2); y1 = Math.min(view.height, Math.ceil(y1) + 2);
+  return x1 > x0 && y1 > y0 ? { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } : null;
+}
+// A full redraw when needRender is set; otherwise (a stroke in progress) only the part of the screen
+// over the damaged doc box is redrawn, clipped, which gives the same pixels for far less work.
 function render() {
-  needRender = false;
-  const c = vctx;
+  const full = needRender, dmg = damage && clampBB(damage);
+  needRender = false; damage = null;
+  const c = vctx, n = doc.layers.length;
+  let box = null;
+  if (!full && !(dmg && (box = screenBox(dmg)))) return;
+  let a = 0, b = -1;
+  if (n) { [a, b] = unitAt(clamp(doc.active, 0, n - 1)); updateComp(a, b, dmg); }
   c.setTransform(1, 0, 0, 1, 0, 0);
   c.globalAlpha = 1;
+  if (box) { c.save(); c.beginPath(); c.rect(box.x, box.y, box.w, box.h); c.clip(); }
   c.fillStyle = '#26272b'; c.fillRect(0, 0, view.width, view.height);
   const k = V.s * dpr, cs = Math.cos(V.r) * k, sn = Math.sin(V.r) * k;
   c.setTransform(cs * V.f, sn * V.f, -sn, cs, V.x * dpr, V.y * dpr);
@@ -1489,31 +1646,33 @@ function render() {
   c.shadowBlur = 0; c.shadowColor = 'transparent';
   c.imageSmoothingEnabled = k < 2.5;
   c.imageSmoothingQuality = 'medium';
-  for (const L of doc.layers) if (L.visible && L.opacity > 0 && L.canvas.width) {
-    c.globalAlpha = L.opacity; c.drawImage(L.canvas, 0, 0);
-    if (xf && xf.mode === 'pixels' && xf.L === L) {          // the lifted pixels, transformed, in their layer's place
-      c.save(); c.transform(...xfMatrix()); c.imageSmoothingEnabled = true; c.drawImage(xf.float, 0, 0); c.restore();
-    }
+  if (n) {
+    if (comp.kB) c.drawImage(comp.below.canvas, 0, 0); else if (a > 0) drawRange(c, 0, a - 1, null);
+    if (comp.kU) { c.globalAlpha = doc.layers[a].opacity; c.drawImage(comp.act.canvas, 0, 0); c.globalAlpha = 1; }
+    else drawUnit(c, a, b, null);                // (the lifted transform pixels are drawn in their layer's place)
+    if (comp.kA) c.drawImage(comp.above.canvas, 0, 0); else if (b < n - 1) drawRange(c, b + 1, n - 1, null);
   }
   c.globalAlpha = 1;
   drawSelectionOutline(c);
   c.setTransform(dpr, 0, 0, dpr, 0, 0);
   if (xf) drawXfHandles(c);
-  updateCursor();                          // size may have changed with zoom or the size slider
   if (pickRing) {
     const { x, y } = pickRing, R = 46;
     c.lineWidth = 14; c.strokeStyle = colorHex(); c.beginPath(); c.arc(x, y, R, 0, TAU); c.stroke();
     c.lineWidth = 1.5; c.strokeStyle = '#000'; c.beginPath(); c.arc(x, y, R + 7.5, 0, TAU); c.stroke();
     c.beginPath(); c.arc(x, y, R - 7.5, 0, TAU); c.stroke();
   }
+  if (box) c.restore();
+  updateCursor();                          // size may have changed with zoom or the size slider
+}
+function tick() {
+  if (stroke) flushStroke();
+  if (needRender || damage) render();
 }
 function frame() {
   requestAnimationFrame(frame);              // first, so one bad frame can never stop the loop
   if (fadeRects && !stroke && !selDraw) uiFadeEnd();   // a drag ended some other way (cancelled, two-finger pinch…)
-  try {
-    if (stroke) flushStroke();
-    if (needRender) render();
-  } catch (e) { console.error(e); needRender = false; }
+  try { tick(); } catch (e) { console.error(e); needRender = false; damage = null; }
 }
 
 // ---------------------------------------------------------------- input: pen & mouse
@@ -1690,6 +1849,7 @@ addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && k === 'd') { e.preventDefault(); deselect(); return; }
   if ((e.ctrlKey || e.metaKey) && k === 'a') { e.preventDefault(); selectAll(); return; }
   if ((e.ctrlKey || e.metaKey) && e.shiftKey && k === 'i') { e.preventDefault(); invertSel(); return; }
+  if ((e.ctrlKey || e.metaKey) && e.altKey && k === 'g') { e.preventDefault(); toggleClip(); return; }
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   if (k === ' ') { spaceHeld = true; e.preventDefault(); }
   else if (k === 'b') { setBrushKind('brush'); setTool('brush'); }
@@ -1934,17 +2094,29 @@ function buildLayers() {
   const list = $('#lList'); list.innerHTML = '';
   for (let i = doc.layers.length - 1; i >= 0; i--) {
     const L = doc.layers[i], row = document.createElement('div');
-    row.className = 'lrow' + (i === doc.active ? ' on' : '');
+    row.className = 'lrow' + (i === doc.active ? ' on' : '') + (isClipped(i) ? ' clip' : '');
+    if (isClipped(i)) row.title = 'Clipped to ' + doc.layers[unitAt(i)[0]].name;
     const nm = document.createElement('div'); nm.className = 'lname'; nm.textContent = L.name;
     const eye = document.createElement('button'); eye.className = 'eye' + (L.visible ? '' : ' off'); eye.innerHTML = L.visible ? EYE : EYE_OFF;
     eye.onclick = ev => { ev.stopPropagation(); L.visible = !L.visible; buildLayers(); needRender = true; scheduleSave(); };
-    row.onclick = () => { if (doc.active !== i) { doc.active = i; buildLayers(); scheduleSave(); } };
+    // (needRender: the layer caches are rebuilt around the new active layer now, not on the first dab)
+    row.onclick = () => { if (doc.active !== i) { doc.active = i; buildLayers(); needRender = true; scheduleSave(); } };
     nm.ondblclick = renameLayer;
     row.append(L.tw, nm, eye); list.append(row);
   }
   const L = activeLayer();
   $('#lOpacity').value = Math.round(L.opacity * 100); $('#oLOp').textContent = Math.round(L.opacity * 100) + '%';
+  $('#lClip').classList.toggle('on', isClipped(doc.active)); $('#lClip').disabled = doc.active === 0;
 }
+function toggleClip() {                    // Clip ↓: clip the active layer to the layer(s) below, or stop clipping
+  const i = doc.active, L = activeLayer();
+  if (i === 0) return toast('The bottom layer has nothing below to clip to');
+  const v = !L.clip;
+  L.clip = v; changed();
+  toast(v ? 'Clipped to ' + doc.layers[unitAt(i)[0]].name : 'Not clipped', 1100);
+  pushUndo({ undo() { L.clip = !v; }, redo() { L.clip = v; } });
+}
+$('#lClip').onclick = toggleClip;
 $('#lOpacity').oninput = e => { const L = activeLayer(); L.opacity = e.target.value / 100; $('#oLOp').textContent = e.target.value + '%'; needRender = true; scheduleSave(); };
 function addLayerUndoable(L, idx) {
   const prev = doc.active;
@@ -1958,7 +2130,7 @@ $('#lAdd').onclick = () => {
 $('#lDup').onclick = () => {
   if (doc.layers.length >= MAX_LAYERS) return toast('Layer limit reached');
   const S = activeLayer(), L = makeLayer(S.name + ' copy');
-  L.ctx.drawImage(S.canvas, 0, 0); L.opacity = S.opacity; L.visible = S.visible; updateThumb(L);
+  L.ctx.drawImage(S.canvas, 0, 0); L.opacity = S.opacity; L.visible = S.visible; L.clip = S.clip; updateThumb(L);
   addLayerUndoable(L, doc.active + 1);
 };
 $('#lDel').onclick = () => {
@@ -1970,8 +2142,8 @@ $('#lDel').onclick = () => {
 $('#lClear').onclick = () => {
   if (sel.active) return clearSel();
   const L = activeLayer(), before = crop(L.canvas, 0, 0, doc.w, doc.h);
-  L.ctx.clearRect(0, 0, doc.w, doc.h); L.saveDirty = true; updateThumb(L); changed();
-  pushUndo({ px: doc.w * doc.h, undo() { putPixels(L, before, 0, 0); }, redo() { L.ctx.clearRect(0, 0, doc.w, doc.h); L.saveDirty = true; updateThumb(L); } });
+  L.ctx.clearRect(0, 0, doc.w, doc.h); L.ver++; L.saveDirty = true; updateThumb(L); changed();
+  pushUndo({ px: doc.w * doc.h, undo() { putPixels(L, before, 0, 0); }, redo() { L.ctx.clearRect(0, 0, doc.w, doc.h); L.ver++; L.saveDirty = true; updateThumb(L); } });
 };
 function moveLayer(dir) {
   const i = doc.active, j = i + dir;
@@ -1982,17 +2154,26 @@ function moveLayer(dir) {
 }
 $('#lUp').onclick = () => moveLayer(1);
 $('#lDown').onclick = () => moveLayer(-1);
+// Merge ↓ keeps the look. A layer clipped to the one below is baked in with 'source-atop' (only where the
+// lower layer has paint), and the lower layer keeps its opacity, which still applies to the whole group.
+// Otherwise both layers' opacities are baked into the pixels and the result is at 100%. The merged layer
+// keeps the lower layer's place and Clip setting.
 $('#lMerge').onclick = () => {
   const i = doc.active; if (i === 0) return toast('Nothing below to merge into');
-  const up = doc.layers[i], lo = doc.layers[i - 1];
-  const before = crop(lo.canvas, 0, 0, doc.w, doc.h);
-  if (up.visible) { lo.ctx.globalAlpha = up.opacity; lo.ctx.drawImage(up.canvas, 0, 0); lo.ctx.globalAlpha = 1; }
-  const after = crop(lo.canvas, 0, 0, doc.w, doc.h);
-  lo.saveDirty = true; updateThumb(lo);
+  const up = doc.layers[i], lo = doc.layers[i - 1], loOp = lo.opacity;
+  const atop = isClipped(i) && !isClipped(i - 1);           // up clips straight onto lo
+  const before = crop(lo.canvas, 0, 0, doc.w, doc.h), c = lo.ctx;
+  c.save();
+  if (!atop && loOp < 1) { c.globalCompositeOperation = 'copy'; c.globalAlpha = loOp; c.drawImage(before, 0, 0); lo.opacity = 1; }
+  if (up.visible) { c.globalCompositeOperation = atop ? 'source-atop' : 'source-over'; c.globalAlpha = up.opacity; c.drawImage(up.canvas, 0, 0); }
+  c.restore();
+  const after = crop(lo.canvas, 0, 0, doc.w, doc.h), loOp2 = lo.opacity;
+  lo.ver++; lo.saveDirty = true; updateThumb(lo);
   removeLayer(i); doc.active = i - 1; changed();
+  if (isClipped(i - 1) && !isClipped(i) && up.visible) toast('Merged into a clipped layer: paint outside ' + doc.layers[unitAt(i - 1)[0]].name + ' is hidden (turn Clip off to see it)', 3200);
   pushUndo({ px: doc.w * doc.h * 2,
-    undo() { putPixels(lo, before, 0, 0); doc.layers.splice(i, 0, up); doc.active = i; },
-    redo() { putPixels(lo, after, 0, 0); doc.layers.splice(i, 1); doc.active = i - 1; } });
+    undo() { putPixels(lo, before, 0, 0); lo.opacity = loOp; doc.layers.splice(i, 0, up); doc.active = i; },
+    redo() { putPixels(lo, after, 0, 0); lo.opacity = loOp2; doc.layers.splice(i, 1); doc.active = i - 1; } });
 };
 function renameLayer() {
   const L = activeLayer(), n = prompt('Layer name', L.name);
@@ -2045,10 +2226,9 @@ $('#fileIn').onchange = async () => {
   } catch (err) { toast('Could not open that image'); }
 };
 async function flatten() {
-  const c = makeCanvas(doc.w, doc.h), x = c.getContext('2d');
-  x.fillStyle = doc.bg; x.fillRect(0, 0, doc.w, doc.h);
-  for (const L of doc.layers) if (L.visible) { x.globalAlpha = L.opacity; x.drawImage(L.canvas, 0, 0); }
-  return toBlob(c);
+  const c = compositeCanvas(doc.w, doc.h), blob = await toBlob(c);
+  c.width = 0;
+  return blob;
 }
 const fileName = () => 'painting-' + new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-') + '.png';
 $('#mSave').onclick = async () => {
@@ -2153,9 +2333,7 @@ function startBlank(w, h, bg) {
   fitView();
 }
 async function projThumb() {
-  const k = 320 / Math.max(doc.w, doc.h), c = makeCanvas(Math.max(1, Math.round(doc.w * k)), Math.max(1, Math.round(doc.h * k))), x = c.getContext('2d');
-  x.fillStyle = doc.bg; x.fillRect(0, 0, c.width, c.height);
-  for (const L of doc.layers) if (L.visible) { x.globalAlpha = L.opacity; x.drawImage(L.canvas, 0, 0, c.width, c.height); }
+  const k = 320 / Math.max(doc.w, doc.h), c = compositeCanvas(Math.max(1, Math.round(doc.w * k)), Math.max(1, Math.round(doc.h * k)));
   return new Promise(r => c.toBlob(r, 'image/jpeg', 0.85));
 }
 let saveT = 0, saveChain = Promise.resolve();
@@ -2168,10 +2346,15 @@ async function doSave() {
   if (!projId || !doc.layers.length) return;
   if (xf && xf.mode === 'pixels') { scheduleSave(); return; }   // pixels are lifted mid-transform: save once it's applied or cancelled
   const id = projId;
-  for (const L of [...doc.layers]) if (L.saveDirty || !L.blob) { L.saveDirty = false; L.blob = await toBlob(L.canvas); }
+  for (const L of [...doc.layers]) if (L.saveDirty || !L.blob) {
+    // Turning a layer into PNG first copies it back from the GPU, which can stall a frame or two:
+    // wait while the pen is down so it never lands in the middle of a stroke (up to 20 s).
+    for (let t = 0; (stroke || selDraw) && t < 100; t++) await new Promise(r => setTimeout(r, 200));
+    L.saveDirty = false; L.blob = await toBlob(L.canvas);
+  }
   const updated = Date.now(), thumb = await projThumb();
   await kv('readwrite', 'proj:' + id, { v: 2, id, name: projName, w: doc.w, h: doc.h, bg: doc.bg, active: doc.active, updated,
-    layers: doc.layers.map(L => ({ name: L.name, visible: L.visible, opacity: L.opacity, blob: L.blob })) });
+    layers: doc.layers.map(L => ({ name: L.name, visible: L.visible, opacity: L.opacity, clip: !!L.clip, blob: L.blob })) });
   await withIndex(idx => {
     const e = { id, name: projName, updated, w: doc.w, h: doc.h, n: doc.layers.length, thumb };
     const i = idx.findIndex(p => p.id === id);
@@ -2182,7 +2365,7 @@ async function doSave() {
 async function loadRecord(d) {
   newDoc(d.w, d.h, d.bg);
   for (const l of d.layers) {
-    const L = makeLayer(l.name); L.visible = l.visible; L.opacity = l.opacity;
+    const L = makeLayer(l.name); L.visible = l.visible; L.opacity = l.opacity; L.clip = !!l.clip;
     if (l.blob) { const bmp = await createImageBitmap(l.blob); L.ctx.drawImage(bmp, 0, 0); bmp.close?.(); L.blob = l.blob; L.saveDirty = false; }
     updateThumb(L); doc.layers.push(L);
   }
@@ -2268,7 +2451,7 @@ async function deleteProject(id, name) {
 const MAGIC = 'TPAINT01';
 function packProject(rec) {
   const meta = { app: 'Tablet Painter', name: rec.name, w: rec.w, h: rec.h, bg: rec.bg, active: rec.active,
-    layers: rec.layers.map(l => ({ name: l.name, visible: l.visible, opacity: l.opacity, size: l.blob.size })) };
+    layers: rec.layers.map(l => ({ name: l.name, visible: l.visible, opacity: l.opacity, clip: !!l.clip, size: l.blob.size })) };
   const json = new TextEncoder().encode(JSON.stringify(meta)), head = new Uint8Array(12);
   head.set(new TextEncoder().encode(MAGIC)); new DataView(head.buffer).setUint32(8, json.length, true);
   return new Blob([head, json, ...rec.layers.map(l => l.blob)], { type: 'application/octet-stream' });
@@ -2279,7 +2462,7 @@ async function unpackProject(file) {
   const n = new DataView(buf).getUint32(8, true), meta = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 12, n)));
   if (!(meta.w >= 1 && meta.h >= 1 && meta.w <= 8192 && meta.h <= 8192)) throw new Error('the file has a bad canvas size');
   let off = 12 + n;
-  const layers = meta.layers.map(l => { const blob = new Blob([buf.slice(off, off + l.size)], { type: 'image/png' }); off += l.size; return { name: l.name, visible: l.visible, opacity: l.opacity, blob }; });
+  const layers = meta.layers.map(l => { const blob = new Blob([buf.slice(off, off + l.size)], { type: 'image/png' }); off += l.size; return { name: l.name, visible: l.visible, opacity: l.opacity, clip: !!l.clip, blob }; });
   return { name: meta.name || 'Imported', w: meta.w, h: meta.h, bg: meta.bg || '#ffffff', active: meta.active | 0, layers };
 }
 async function exportProject(id) {
