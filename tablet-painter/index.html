@@ -12,6 +12,9 @@
     font:14px/1.3 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; user-select:none; -webkit-user-select:none;
     touch-action:none; overscroll-behavior:none; }
   #view { position:fixed; inset:0; width:100%; height:100%; touch-action:none; display:block; }
+  /* brush-size circle: white ring with a dark outline, visible on any colour */
+  #cursor { position:fixed; left:0; top:0; z-index:5; display:none; pointer-events:none; border-radius:50%;
+    border:1px solid rgba(255,255,255,.85); box-shadow:0 0 0 1px rgba(0,0,0,.7); will-change:transform; }
   button { font:inherit; color:inherit; background:none; border:0; padding:0; cursor:pointer; }
   svg { width:24px; height:24px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; pointer-events:none; }
 
@@ -156,12 +159,14 @@
     z-index:50; opacity:0; transition:opacity .25s; pointer-events:none; max-width:90vw; text-align:center; }
   #toast.show { opacity:1; }
   /* Auto-hide: UI the pen comes near during a stroke fades out until the pen moves away or lifts. */
-  #top, #bottom, #selBar, .vs { transition:opacity .15s; }
-  .faded { opacity:0 !important; pointer-events:none !important; }
+  /* Fading in uses the slow, shy curve below; fading out uses the quick one on .faded. */
+  #top, #bottom, #selBar, .vs { transition:opacity .6s cubic-bezier(.5, 0, .3, 1); }
+  .faded { opacity:0 !important; pointer-events:none !important; transition:opacity .1s ease-out !important; }
 </style>
 </head>
 <body>
 <canvas id="view"></canvas>
+<div id="cursor"></div>
 
 <div id="top">
   <div class="grp" id="gLeft">
@@ -262,9 +267,9 @@
 </div>
 
 <div id="fxBar">
-  <div id="fxHead"><b>Gaussian blur</b><span id="fxWhat"></span></div>
-  <div class="row"><label style="width:auto">Strength</label><input type="range" id="fxR" min="0" max="100"><output id="fxRV" style="width:64px"></output></div>
-  <div class="btns" style="margin-top:4px"><button class="btn" id="fxCancel">Cancel</button><button class="btn pri" id="fxApply">Apply</button></div>
+  <div id="fxHead"><b id="fxTitle">Filter</b><span id="fxWhat"></span></div>
+  <div id="fxRows"></div>
+  <div class="btns" style="margin-top:4px"><button class="btn" id="fxExtra" style="margin-right:auto; display:none"></button><button class="btn" id="fxCancel">Cancel</button><button class="btn pri" id="fxApply">Apply</button></div>
 </div>
 
 <div class="pop" id="pFx">
@@ -272,6 +277,8 @@
   <div class="hint" id="fxTarget" style="margin:-4px 0 10px"></div>
   <button class="fxItem" id="fxBlurItem"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="7.5" stroke-opacity=".5"/><circle cx="12" cy="12" r="10.5" stroke-opacity=".25"/></svg>
     <span><b>Gaussian blur</b><br><small>Soften the layer, or only the selection</small></span></button>
+  <button class="fxItem" id="fxNoiseItem" style="margin-top:6px"><svg viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="17" height="17" rx="3"/><g fill="currentColor" stroke="none"><circle cx="8" cy="8" r="1.1"/><circle cx="13" cy="7" r="1.1"/><circle cx="16.5" cy="10" r="1.1"/><circle cx="10" cy="12" r="1.1"/><circle cx="7" cy="16" r="1.1"/><circle cx="14" cy="14.5" r="1.1"/><circle cx="17" cy="17" r="1.1"/><circle cx="11" cy="17.5" r="1.1"/></g></svg>
+    <span><b>Noise</b><br><small>Add grain to the painted pixels</small></span></button>
 </div>
 
 <div class="pop" id="pColor">
@@ -321,7 +328,7 @@
     <li>Your palm is ignored while the pen is near the screen.</li>
     <li><b>Pencil</b>: tap the brush button again and pick Pencil. It has paper grain. Turn on Pressure → opacity to press lightly for a grainy line and harder to fill it in; with it off, the line is even and Density sets how grainy it is.</li>
     <li><b>Brush settings</b>: tap the active brush or eraser button again. A test stroke at the top shows what the brush will paint.</li>
-    <li><b>Filters</b> (three-circles button): Gaussian blur. Drag Strength to preview, then Apply. With a selection, only the selected part of the layer is blurred.</li>
+    <li><b>Filters</b> (three-circles button): Gaussian blur and Noise, with a live preview; Apply or Cancel. With a selection, only the selected part of the layer changes. Noise only adds grain where something is painted; "New pattern" rolls a different grain.</li>
     <li><b>Transform</b> (box-with-corners button, or T): moves, scales and rotates the selected part of the layer, or the whole layer with no selection. Drag inside the box to move, corners to scale, edge dots to stretch, the round knob to rotate (snaps at 45°). Two fingers still pan and zoom the view. "Selection outline" moves just the selection, not the pixels.</li>
     <li>Rectangle and ellipse selections line up with the screen, even when the canvas is rotated.</li>
     <li>Tapping the canvas closes any open panel without painting.</li>
@@ -347,7 +354,12 @@ const UNDO_BUDGET = 90e6;            // pixels kept for undo (about 360 MB)
 
 // ---------------------------------------------------------------- state
 const view = $('#view');
-const vctx = view.getContext('2d', { alpha: false, desynchronized: true });
+// "desynchronized" (low-latency) canvases draw straight to the screen without a back buffer. In the
+// Android app's WebView that works well and makes the pen feel quicker, but in browsers (Chrome on PC and
+// phones) half-finished redraws become visible: layers flicker and colours band. So browsers get a normal,
+// double-buffered canvas and only the app uses low latency.
+const IN_APP = !!(window.PainterNative || window.Capacitor?.isNativePlatform?.());
+const vctx = view.getContext('2d', { alpha: false, desynchronized: IN_APP });
 let dpr = 1, VW = 0, VH = 0;
 const doc = { w: 0, h: 0, bg: '#ffffff', layers: [], active: 0 };
 const V = { s: 1, r: 0, x: 0, y: 0, f: 1 };      // screen = R(r)·s·F·doc + (x,y), CSS px; F mirrors x when f = -1
@@ -723,9 +735,24 @@ function evPressure(e) {
 }
 // ---------------------------------------------------------------- auto-hide UI while drawing
 // During a stroke or a selection drag, each bar or slider the pointer comes within FADE_NEAR px of
-// fades out, so the whole screen can be used as canvas. Everything comes back when the drag ends.
-const FADE_NEAR = 64;
+// fades out (quickly), so the whole screen can be used as canvas. Coming back is deliberately shy:
+// the pointer has to get further away (FADE_FAR) than the distance that hid it, and stay away for a
+// moment (or the pen has to be lifted for a moment) before the element slowly fades in again. Fast
+// strokes that skim past a bar, or quick hatching near it, therefore don't make it flicker.
+const FADE_NEAR = 64, FADE_FAR = 120, SHOW_DELAY = 350, LIFT_DELAY = 500;
+const fadeState = new Map();                     // element → { hidden, timer }, kept between strokes
 let fadeRects = null;
+function fadeHide(el) {
+  let s = fadeState.get(el);
+  if (!s) fadeState.set(el, s = { hidden: false, timer: 0 });
+  clearTimeout(s.timer); s.timer = 0;
+  if (!s.hidden) { s.hidden = true; el.classList.add('faded'); }
+}
+function fadeShowLater(el, ms) {
+  const s = fadeState.get(el);
+  if (!s || !s.hidden || s.timer) return;
+  s.timer = setTimeout(() => { s.timer = 0; s.hidden = false; el.classList.remove('faded'); }, ms);
+}
 function uiFadeStart() {
   fadeRects = null;
   if (!prefs.autoHide) return;
@@ -738,18 +765,24 @@ function uiFadeStart() {
 function uiFadeAt(x, y) {
   if (!fadeRects) return;
   for (const { el, r } of fadeRects) {
-    const dx = Math.max(r.left - x, 0, x - r.right), dy = Math.max(r.top - y, 0, y - r.bottom);
-    el.classList.toggle('faded', dx * dx + dy * dy < FADE_NEAR * FADE_NEAR);
+    const dx = Math.max(r.left - x, 0, x - r.right), dy = Math.max(r.top - y, 0, y - r.bottom), d2 = dx * dx + dy * dy;
+    if (d2 < FADE_NEAR * FADE_NEAR) fadeHide(el);
+    else if (d2 > FADE_FAR * FADE_FAR) fadeShowLater(el, SHOW_DELAY);
   }
 }
-function uiFadeEnd() {
+function uiFadeEnd() {                           // the drag ended: hidden things come back after a short pause
   if (!fadeRects) return;
-  for (const { el } of fadeRects) el.classList.remove('faded');
+  for (const { el } of fadeRects) fadeShowLater(el, LIFT_DELAY);
   fadeRects = null;
+}
+function uiFadeReset() {                         // show everything right away (auto-hide switched off)
+  for (const [el, s] of fadeState) { clearTimeout(s.timer); el.classList.remove('faded'); }
+  fadeState.clear(); fadeRects = null;
 }
 
 function strokeInput(e) {
   uiFadeAt(e.clientX, e.clientY);
+  stroke.sx = e.clientX; stroke.sy = e.clientY; updateCursor();   // the brush circle follows the pen while drawing
   const list = (e.getCoalescedEvents && e.getCoalescedEvents()) || [];
   for (const ev of (list.length ? list : [e])) { const d = toDoc(ev.clientX, ev.clientY); addRaw(d.x, d.y, evPressure(ev)); }
 }
@@ -764,7 +797,7 @@ function beginStroke(e, t) {
   if (mask) { bctx.fillStyle = '#000'; bctx.fillRect(0, 0, doc.w, doc.h); bctx.globalCompositeOperation = 'lighten'; }
   else { bctx.clearRect(0, 0, doc.w, doc.h); bctx.fillStyle = col; }
   stroke = { L, t, ts, pop, pencil, mask, col, hard: ts.hardness >= 0.99, pts: [], sm: null, raw: null, last: null, toNext: 0,
-             minD: 0.4 / V.s, bb: emptyBB(), dirty: emptyBB(), id: e.pointerId };
+             minD: 0.4 / V.s, bb: emptyBB(), dirty: emptyBB(), id: e.pointerId, ptype: e.pointerType, sx: e.clientX, sy: e.clientY };
   if (t === 'brush') addRecent(colorHex());
   uiFadeStart();
   strokeInput(e);
@@ -817,6 +850,7 @@ function endStroke() {
   }
   flushStroke();
   stroke = null;
+  strokeCursorEnd(st);
   const r = clampBB(st.bb);
   if (!r) return;
   const L = st.L, before = crop(snap, r.x, r.y, r.w, r.h), after = crop(L.canvas, r.x, r.y, r.w, r.h);
@@ -827,6 +861,7 @@ function cancelStroke() {
   const st = stroke; if (!st) return;
   uiFadeEnd();
   stroke = null;
+  strokeCursorEnd(st);
   const r = clampBB(st.bb);
   if (r) { st.L.ctx.clearRect(r.x, r.y, r.w, r.h); st.L.ctx.drawImage(snap, r.x, r.y, r.w, r.h, r.x, r.y, r.w, r.h); }
   needRender = true;
@@ -1073,11 +1108,11 @@ function testFilter() {
   } catch (e) { return false; }
 }
 
-// ---------------------------------------------------------------- filters: gaussian blur
-// Blurs the active layer (or, with a selection, only the selected part of it) with a live preview.
-// The layer is padded with copies of its edge pixels before blurring, so paint that reaches the
-// canvas edge stays solid there instead of fading out.
-let fx = null;                                   // { L, orig, radius, pending } while the blur panel is open
+// ---------------------------------------------------------------- filters (Filters tab): blur, noise
+// A filter works on the active layer, or with a selection only on the selected part of it, with a live
+// preview in the filter panel; Apply makes it one undo step, Cancel restores the layer exactly.
+// Each filter lists its controls and renders the result into the layer from the untouched copy fx.orig.
+let fx = null;                                   // { kind, L, orig, v: control values, pending, … } while a filter panel is open
 let fxPad = null, fxOut = null;
 const blurRadius = v => Math.round(0.015 * v * v * 10) / 10;   // slider 0..100 → 0..150 px, finer at the low end
 function blurCanvas(src, r) {
@@ -1098,10 +1133,8 @@ function blurCanvas(src, r) {
   o.filter = 'none';
   return fxOut;
 }
-function fxRender() {
-  if (!fx) return;
-  fx.pending = false;
-  const { L, orig, radius: r } = fx, c = L.ctx;
+function renderBlur(fx) {                       // GPU blur, mixed in through the selection with soft edges
+  const { L, orig } = fx, c = L.ctx, r = blurRadius(fx.v.radius);
   c.save();
   c.globalCompositeOperation = 'copy'; c.drawImage(orig, 0, 0);          // start from the untouched layer
   if (r > 0) {
@@ -1116,28 +1149,108 @@ function fxRender() {
     } else c.drawImage(blurred, 0, 0);
   }
   c.restore();
+}
+// Noise: a random grain pattern (made once per grain size / colour setting, so the Amount slider is
+// quick) is added to the colour of every painted pixel. Transparency is left exactly as it was, so empty
+// areas stay empty; with a selection, the grain fades out with the selection's soft edges.
+function makeNoise(fx) {
+  const w = doc.w, h = doc.h, s = fx.v.size, color = fx.v.color, sw = Math.ceil(w / s), sh = Math.ceil(h / s);
+  const small = makeCanvas(sw, sh), sx = small.getContext('2d'), img = sx.createImageData(sw, sh), d = img.data;
+  const g = () => (Math.random() + Math.random() + Math.random() - 1.5) * 120;   // roughly bell-shaped around 0
+  for (let i = 0; i < d.length; i += 4) {
+    const r = g();
+    d[i] = 128 + r; d[i + 1] = 128 + (color ? g() : r); d[i + 2] = 128 + (color ? g() : r); d[i + 3] = 255;
+  }
+  sx.putImageData(img, 0, 0);
+  const big = makeCanvas(w, h), bx = big.getContext('2d', { willReadFrequently: true });
+  bx.imageSmoothingEnabled = s > 1; bx.imageSmoothingQuality = 'high';      // bigger grains: soft, not blocky
+  bx.drawImage(small, 0, 0, w, h);
+  const n = bx.getImageData(0, 0, w, h).data;
+  let sum = 0, cnt = 0;                                                   // measure how strong the grain is,
+  for (let i = 0; i < n.length; i += 4 * 97) { const v = n[i] - 128; sum += v * v; cnt++; }   // so every size looks equally strong
+  fx.noise = n; fx.noiseStd = Math.sqrt(sum / cnt) || 1; fx.noiseKey = `${s}|${color}|${fx.seed}`;
+}
+function renderNoise(fx) {
+  if (!fx.origData) {
+    fx.origData = fx.orig.getContext('2d').getImageData(0, 0, doc.w, doc.h);
+    fx.outData = new ImageData(doc.w, doc.h);
+    fx.selData = sel.active ? sel.ctx.getImageData(0, 0, doc.w, doc.h).data : null;
+  }
+  if (fx.noiseKey !== `${fx.v.size}|${fx.v.color}|${fx.seed}`) makeNoise(fx);
+  const s = fx.origData.data, o = fx.outData.data, n = fx.noise, m = fx.selData, color = fx.v.color;
+  o.set(s);
+  const k = fx.v.amount / 100 * 64 / fx.noiseStd;                         // 100% ≈ ±64 levels of grain (one std)
+  if (k > 0) for (let i = 0; i < o.length; i += 4) {
+    if (!s[i + 3]) continue;                                              // nothing painted here
+    const f = m ? m[i + 3] / 255 * k : k;
+    if (!f) continue;
+    const r = n[i] - 128;
+    o[i] = s[i] + r * f;
+    o[i + 1] = s[i + 1] + (color ? n[i + 1] - 128 : r) * f;
+    o[i + 2] = s[i + 2] + (color ? n[i + 2] - 128 : r) * f;
+  }
+  fx.L.ctx.putImageData(fx.outData, 0, 0);
+}
+const FILTERS = {
+  blur: {
+    title: 'Gaussian blur',
+    controls: [{ id: 'radius', label: 'Strength', min: 0, max: 100, def: 30, fmt: v => blurRadius(v) + ' px' }],
+    render: renderBlur, isNoop: v => blurRadius(v.radius) <= 0,
+  },
+  noise: {
+    title: 'Noise',
+    controls: [{ id: 'amount', label: 'Amount', min: 0, max: 100, def: 20, fmt: v => v + '%' },
+               { id: 'size', label: 'Grain size', min: 1, max: 8, def: 1, fmt: v => v + ' px' },
+               { id: 'color', label: 'Colour noise', check: true, def: false }],
+    extra: { label: 'New pattern', run: fx => { fx.seed++; } },
+    render: renderNoise, isNoop: v => v.amount <= 0,
+  },
+};
+function fxRender() {
+  if (!fx) return;
+  fx.pending = false;
+  FILTERS[fx.kind].render(fx);
   needRender = true;
 }
 function fxSync() {
-  const v = +$('#fxR').value; fx.radius = blurRadius(v);
-  $('#fxRV').textContent = fx.radius + ' px';
+  const F = FILTERS[fx.kind];
+  for (const c of F.controls) {
+    const el = $('#fxc_' + c.id);
+    fx.v[c.id] = c.check ? el.checked : +el.value;
+    if (!c.check) $('#fxo_' + c.id).textContent = c.fmt(+el.value);
+  }
   if (!fx.pending) { fx.pending = true; requestAnimationFrame(fxRender); }
 }
-function openBlur() {
-  if (fx || stroke) return;
+function openFilter(kind) {
+  if (fx || xf || stroke) return;
   closePopups();
   document.querySelectorAll('.modal.open').forEach(m => m.classList.remove('open'));
   const L = activeLayer();
   if (!L.visible) return toast('This layer is hidden');
-  fx = { L, orig: crop(L.canvas, 0, 0, doc.w, doc.h), radius: 0, pending: false };
+  const F = FILTERS[kind], saved = (prefs.fxVals || {})[kind] || (kind === 'blur' && prefs.blurV != null ? { radius: prefs.blurV } : {});
+  fx = { kind, L, orig: crop(L.canvas, 0, 0, doc.w, doc.h), v: {}, pending: false, seed: 1 };
+  $('#fxTitle').textContent = F.title;
   $('#fxWhat').textContent = '· ' + L.name + (sel.active ? ' · selection only' : '');
-  $('#fxR').value = prefs.blurV ?? 30;
+  const rows = $('#fxRows'); rows.innerHTML = '';
+  for (const c of F.controls) {
+    const row = document.createElement('div'); row.className = 'row';
+    const val = saved[c.id] ?? c.def;
+    row.innerHTML = c.check
+      ? `<label style="width:auto">${c.label}</label><input type="checkbox" id="fxc_${c.id}">`
+      : `<label style="width:96px">${c.label}</label><input type="range" id="fxc_${c.id}" min="${c.min}" max="${c.max}"><output id="fxo_${c.id}" style="width:64px"></output>`;
+    rows.append(row);
+    const inp = $('#fxc_' + c.id);
+    if (c.check) { inp.checked = !!val; inp.onchange = fxSync; } else { inp.value = val; inp.oninput = fxSync; }
+  }
+  const ex = $('#fxExtra');
+  if (F.extra) { ex.textContent = F.extra.label; ex.style.display = ''; ex.onclick = () => { F.extra.run(fx); fxSync(); }; }
+  else ex.style.display = 'none';
   document.body.classList.add('fx'); $('#fxBar').classList.add('open');
-  hover = null;
+  hover = null; updateCursor();
   fxSync();
 }
 function closeFx() {
-  fx = null; fxPad = null; fxOut = null;              // let the big scratch canvases go
+  fx = null; fxPad = null; fxOut = null;              // let the big scratch buffers go
   document.body.classList.remove('fx'); $('#fxBar').classList.remove('open');
   needRender = true;
 }
@@ -1151,18 +1264,18 @@ function fxCancel() {
 function fxApply() {
   if (!fx) return;
   if (fx.pending) fxRender();
-  const { L, orig, radius } = fx;
-  prefs.blurV = +$('#fxR').value; savePrefs();
+  const { L, orig, kind, v } = fx;
+  prefs.fxVals = { ...(prefs.fxVals || {}), [kind]: { ...v } }; savePrefs();   // next time the panel opens with these
   closeFx();
-  if (radius <= 0) return;
+  if (FILTERS[kind].isNoop(v)) return;
   const after = crop(L.canvas, 0, 0, doc.w, doc.h);
   pushUndo({ px: doc.w * doc.h * 2, undo() { putPixels(L, orig, 0, 0); }, redo() { putPixels(L, after, 0, 0); } });
   L.saveDirty = true; updateThumb(L); changed();
 }
-$('#fxR').oninput = fxSync;
 $('#fxCancel').onclick = fxCancel;
 $('#fxApply').onclick = fxApply;
-$('#fxBlurItem').onclick = openBlur;
+$('#fxBlurItem').onclick = () => openFilter('blur');
+$('#fxNoiseItem').onclick = () => openFilter('noise');
 $('#bFx').onclick = () => {
   const L = activeLayer();
   $('#fxTarget').textContent = 'Applies to: ' + L.name + (sel.active ? ' (selection only)' : '') + (L.visible ? '' : ' (hidden)');
@@ -1386,13 +1499,7 @@ function render() {
   drawSelectionOutline(c);
   c.setTransform(dpr, 0, 0, dpr, 0, 0);
   if (xf) drawXfHandles(c);
-  if (hover && !stroke && !xf && (tool === 'brush' || tool === 'eraser' || hover.eraser)) {
-    const t = hover.eraser ? 'eraser' : tool === 'brush' ? brushKind : tool;
-    const r = Math.max(1.5, tools[t].size / 2 * V.s);
-    c.lineWidth = 1;
-    c.strokeStyle = 'rgba(0,0,0,.7)'; c.beginPath(); c.arc(hover.x, hover.y, r + 0.5, 0, TAU); c.stroke();
-    c.strokeStyle = 'rgba(255,255,255,.85)'; c.beginPath(); c.arc(hover.x, hover.y, r - 0.5, 0, TAU); c.stroke();
-  }
+  updateCursor();                          // size may have changed with zoom or the size slider
   if (pickRing) {
     const { x, y } = pickRing, R = 46;
     c.lineWidth = 14; c.strokeStyle = colorHex(); c.beginPath(); c.arc(x, y, R, 0, TAU); c.stroke();
@@ -1433,7 +1540,7 @@ view.addEventListener('pointerdown', e => {
   let t = tool;
   if (e.button === 5 || (e.buttons & 32) || e.button === 2 || (e.buttons & 2)) t = 'eraser';   // pen eraser tip / side button / right mouse
   else if (e.pointerType === 'mouse' && e.altKey) t = 'picker';
-  hover = null;
+  hover = null; updateCursor();
   if (t === 'picker') { pickPtr = e.pointerId; sampleAt(e.clientX, e.clientY); return; }
   if (t === 'select') { startSel(e); return; }
   beginStroke(e, t);
@@ -1447,8 +1554,32 @@ view.addEventListener('pointermove', e => {
   if (pickPtr === e.pointerId) { sampleAt(e.clientX, e.clientY); return; }
   if (xf?.drag && xf.drag.id === e.pointerId) { xfMove(e); return; }
   if (fx || xf) return;
-  hover = { x: e.clientX, y: e.clientY, eraser: !!(e.buttons & 34) || e.button === 5 }; needRender = true;
+  hover = { x: e.clientX, y: e.clientY, eraser: !!(e.buttons & 34) || e.button === 5 }; updateCursor();
 });
+// The brush-size circle under the pen/mouse is a small overlay element, so moving the cursor around
+// never makes the painting itself redraw.
+const cursorEl = $('#cursor');
+// It stays on while drawing (at the stroke's own brush, so the pen's eraser button shows the eraser size)
+// and marks the brush's full size, the edge it reaches at full pressure.
+function updateCursor() {
+  let x, y, ts;
+  if (stroke && stroke.id >= 0) { x = stroke.sx; y = stroke.sy; ts = stroke.ts; }
+  else if (hover && !stroke && !xf && !fx && (tool === 'brush' || tool === 'eraser' || hover.eraser)) {
+    x = hover.x; y = hover.y; ts = tools[hover.eraser ? 'eraser' : tool === 'brush' ? brushKind : tool];
+  }
+  if (!ts) { cursorEl.style.display = 'none'; return; }
+  const r = Math.max(1.5, ts.size / 2 * V.s);
+  cursorEl.style.display = 'block';
+  cursorEl.style.width = cursorEl.style.height = (2 * r) + 'px';
+  cursorEl.style.transform = `translate(${x - r}px, ${y - r}px)`;
+}
+// After a pen or mouse stroke the circle stays where the stroke ended (the next move updates it);
+// after a finger stroke it goes away with the finger.
+function strokeCursorEnd(st) {
+  if (st.id < 0) return;
+  hover = st.ptype === 'touch' ? null : { x: st.sx, y: st.sy, eraser: st.t === 'eraser' && tool !== 'eraser' };
+  updateCursor();
+}
 function penUp(e) {
   if (e.pointerType === 'touch') return touchUp(e);
   if (e.pointerType === 'pen') { penDown = false; lastPen = now(); }
@@ -1460,7 +1591,7 @@ function penUp(e) {
 }
 view.addEventListener('pointerup', penUp);
 view.addEventListener('pointercancel', penUp);
-view.addEventListener('pointerleave', e => { if (e.pointerType !== 'touch') { hover = null; needRender = true; } });
+view.addEventListener('pointerleave', e => { if (e.pointerType !== 'touch') { hover = null; updateCursor(); } });
 view.addEventListener('contextmenu', e => e.preventDefault());
 view.addEventListener('wheel', e => {
   e.preventDefault();
@@ -1582,7 +1713,7 @@ function setTool(t) {
   else if (t === 'eraser') paintTool = 'eraser';
   tool = t;
   document.querySelectorAll('.tool').forEach(b => b.classList.toggle('on', b.dataset.tool === t));
-  syncSliders(); syncBrushPanel(); needRender = true;
+  syncSliders(); syncBrushPanel(); needRender = true; updateCursor();
 }
 const BRUSH_ICONS = {
   brush: '<svg viewBox="0 0 24 24"><path d="M4 20.5c3.2 0 5-1.8 5-4.2a2.6 2.6 0 0 0-5.2 0c0 1.6.6 2.5.2 4.2z"/><path d="M8.4 14L19.6 2.8a1.5 1.5 0 0 1 2.1 2.1L10.5 16.1"/></svg>',
@@ -1939,7 +2070,7 @@ $('#mShare').onclick = async () => {
 function syncRot() { $('#mRotV').textContent = prefs.rotate ? 'on' : 'off'; }
 $('#mRot').onclick = () => { prefs.rotate = !prefs.rotate; syncRot(); savePrefs(); toast(prefs.rotate ? 'Two-finger rotation on' : 'Rotation locked: pinch only pans and zooms'); };
 function syncAutoHide() { $('#mAutoHideV').textContent = prefs.autoHide ? 'on' : 'off'; }
-$('#mAutoHide').onclick = () => { prefs.autoHide = !prefs.autoHide; syncAutoHide(); savePrefs(); toast(prefs.autoHide ? 'Bars and sliders hide while the pen draws near them' : 'UI always stays visible'); };
+$('#mAutoHide').onclick = () => { prefs.autoHide = !prefs.autoHide; if (!prefs.autoHide) uiFadeReset(); syncAutoHide(); savePrefs(); toast(prefs.autoHide ? 'Bars and sliders hide while the pen draws near them' : 'UI always stays visible'); };
 function syncFinger() { $('#mFingerV').textContent = prefs.fingerDraw ? 'on' : 'off'; }
 $('#mFinger').onclick = () => { prefs.fingerDraw = !prefs.fingerDraw; syncFinger(); savePrefs(); toast(prefs.fingerDraw ? 'One finger draws' : 'One finger pans / holds to pick color'); };
 $('#mFull').onclick = () => { closePopups(); document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.().catch(() => {}); };
